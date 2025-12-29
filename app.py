@@ -207,7 +207,7 @@ if json_data:
     
     c1, c2, c3, c4 = st.columns(4)
     with c1: render_card("1. Revenue (Sales)", format_currency(rev, curr_sym), "Top-line sales indicate market demand for the product or service and the size of the operation.", c_income)
-    with c2: render_card("2. Gross Profit", format_currency(gp, curr_sym), "Revenue minus cost of goods.", c_income)
+    with c2: render_card("2. Gross Profit (Production Efficiency)", format_currency(gp, curr_sym), "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, and vehicles used in the manufacturing process.", c_income)
     with c3: render_card("3. Operating Profit", format_currency(op, curr_sym), "Core business profit (EBIT).", c_income)
     with c4: render_card("4. EBITDA", format_currency(ebitda, curr_sym), "Operational cash flow proxy.", c_income)
     
