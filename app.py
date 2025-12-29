@@ -226,7 +226,7 @@ if json_data:
     c_cash = "#10b981"
     
     c1, c2, c3, c4 = st.columns(4)
-    with c1: render_card("1. Operating Cash Flow", format_currency(ocf, curr_sym), "Cash from actual operations.", c_cash)
-    with c2: render_card("2. Free Cash Flow", format_currency(fcf, curr_sym), "Cash remaining after CapEx.", c_cash)
+    with c1: render_card("1. Operating Cash Flow", format_currency(ocf, curr_sym), "Operating cash flow is the cash from operations that actually comes into or leaves the company from its day-to-day business activities. It adjusts net income for non-cash items and changes in working capital, so sales made on credit (like unpaid invoices in accounts receivable) increase net income but do not increase operating cash flow until the cash is collected.", c_cash)
+    with c2: render_card("2. Free Cash Flow (Truly Free Money)", format_currency(fcf, curr_sym), "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt.", c_cash)
     with c3: st.empty()
     with c4: st.empty()
