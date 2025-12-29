@@ -182,7 +182,8 @@ if json_data:
     else:
         nopat = None
 
-    ocf = extract_ttm_metric(json_data, "cfo")
+    # UPDATED: Using 'cf_cfo' for Operating Cash Flow
+    ocf = extract_ttm_metric(json_data, "cf_cfo") 
     fcf = extract_ttm_metric(json_data, "fcf")
 
     # --- Section 1: Income Statement ---
