@@ -216,7 +216,7 @@ if json_data:
     c1, c2, c3, c4 = st.columns(4)
     with c1: render_card("5. NOPAT (After-Tax Operating Profit)", format_currency(nopat, curr_sym), "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.", c_income)
     with c2: render_card("6. Net Income (Earnings) — Bottom-Line Profit", format_currency(ni, curr_sym), "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.", c_income)
-    with c3: render_card("7. EPS (Diluted)", f"{curr_sym}{eps:.2f}" if eps else "N/A", "Profit attributed to each share.", c_income)
+    with c3: render_card("7. Earnings Per Share (EPS)", f"{curr_sym}{eps:.2f}" if eps else "N/A", "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.​", c_income)
     with c4: st.empty() 
 
     st.markdown("---")
