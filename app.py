@@ -97,22 +97,34 @@ def fetch_quickfs_data(ticker, api_key):
         return None
 
 def extract_ttm_metric(data, metric_key):
-    """Extracts TTM value, prioritizing explicit TTM keys or summing last 4 quarters."""
+    """
+    Extracts TTM value, prioritizing explicit TTM keys or summing last 4 quarters.
+    
+    Args:
+        data: The JSON response from QuickFS.
+        metric_key: A string key OR a list of string keys to try (fallback mechanism).
+    """
     try:
         financials = data.get("data", {}).get("financials", {})
         
-        # 1. Try explicit TTM
-        if "ttm" in financials and metric_key in financials["ttm"]:
-            return financials["ttm"][metric_key]
+        # Normalize input to a list of keys to check
+        keys_to_check = [metric_key] if isinstance(metric_key, str) else metric_key
+        
+        # 1. Try explicit TTM for all candidate keys
+        for key in keys_to_check:
+            if "ttm" in financials and key in financials["ttm"]:
+                return financials["ttm"][key]
             
-        # 2. Fallback: Sum last 4 quarters
+        # 2. Fallback: Sum last 4 quarters for all candidate keys
         quarterly = financials.get("quarterly", {})
-        if metric_key in quarterly:
-            values = quarterly[metric_key]
-            if values and len(values) >= 4:
-                valid_values = [v for v in values if v is not None]
-                if len(valid_values) >= 4:
-                    return sum(valid_values[-4:])
+        for key in keys_to_check:
+            if key in quarterly:
+                values = quarterly[key]
+                if values and len(values) >= 4:
+                    valid_values = [v for v in values if v is not None]
+                    if len(valid_values) >= 4:
+                        return sum(valid_values[-4:])
+        
         return None
     except Exception:
         return None
@@ -182,8 +194,8 @@ if json_data:
     else:
         nopat = None
 
-    # UPDATED: Using 'cf_cfo' for Operating Cash Flow
-    ocf = extract_ttm_metric(json_data, "cf_cfo") 
+    # FIX: Try "cf_cfo" first, fallback to "cfo" if missing
+    ocf = extract_ttm_metric(json_data, ["cf_cfo", "cfo"]) 
     fcf = extract_ttm_metric(json_data, "fcf")
 
     # --- Section 1: Income Statement ---
