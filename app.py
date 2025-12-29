@@ -209,12 +209,12 @@ if json_data:
     with c1: render_card("1. Revenue (Sales)", format_currency(rev, curr_sym), "Top-line sales indicate market demand for the product or service and the size of the operation.", c_income)
     with c2: render_card("2. Gross Profit (Production Efficiency)", format_currency(gp, curr_sym), "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.", c_income)
     with c3: render_card("3. Operating Profit / EBIT (Profitability)", format_currency(op, curr_sym), "Operating profit equals gross profit minus operating expenses such as marketing, G&A, R&D, and depreciation. G&A (General and Administrative) covers indirect business costs like office rent, utilities, administrative salaries, and insurance, while R&D (Research and Development) covers costs to create or improve products, such as engineers’ salaries, lab work, and testing. It is a key measure of how profitable the core business is, without the effects of taxes and financing decisions.", c_income)
-    with c4: render_card("4. EBITDA", format_currency(ebitda, curr_sym), "Operational cash flow proxy.", c_income)
+    with c4: render_card("4. NOPAT (Capital Allocation Efficiency)", format_currency(nopat, curr_sym), "NOPAT shows how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.", c_income)
     
     st.markdown(" ") 
     
     c1, c2, c3, c4 = st.columns(4)
-    with c1: render_card("5. NOPAT", format_currency(nopat, curr_sym), "Profit if company had no debt.", c_income)
+    with c1: render_card("5. EBITDA", format_currency(ebitda, curr_sym), "Operational cash flow proxy.", c_income)
     with c2: render_card("6. Net Income", format_currency(ni, curr_sym), "The 'Bottom Line' earnings.", c_income)
     with c3: render_card("7. EPS (Diluted)", f"{curr_sym}{eps:.2f}" if eps else "N/A", "Profit attributed to each share.", c_income)
     with c4: st.empty() 
