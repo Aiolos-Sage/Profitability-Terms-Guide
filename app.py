@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import time
+from datetime import datetime
 
 # --- Configuration ---
 try:
@@ -9,13 +10,6 @@ try:
 except (FileNotFoundError, KeyError):
     st.error("🚨 API Key missing! Please add `QUICKFS_API_KEY` to your `.streamlit/secrets.toml` file.")
     st.stop()
-
-# Preset examples for quick selection
-EXAMPLE_STOCKS = {
-    "DNP (Warsaw)": "DNP:PL",
-    "Ashtead Group (London)": "AHT:LN",
-    "APi Group (USA)": "APG:US"
-}
 
 # --- Session State for Dark Mode ---
 if 'dark_mode' not in st.session_state:
@@ -34,6 +28,8 @@ def local_css(is_dark):
         shadow_color = "rgba(0, 0, 0, 0.3)"
         label_color = "#d0d0d0"
         desc_color = "#b0b0b0"
+        btn_bg = "#d93025" # Red-ish button like screenshot
+        btn_text = "#ffffff"
     else:
         bg_color = "#ffffff"
         text_color = "#000000"
@@ -42,6 +38,8 @@ def local_css(is_dark):
         shadow_color = "rgba(0, 0, 0, 0.05)"
         label_color = "#5f6368"
         desc_color = "#70757a"
+        btn_bg = "#d93025"
+        btn_text = "#ffffff"
 
     st.markdown(f"""
     <style>
@@ -84,6 +82,21 @@ def local_css(is_dark):
         
         .stAlert {{ border-radius: 8px; }}
         h1, h2, h3, h4, h5, h6, .stMarkdown, .stText, .stRadio label {{ color: {text_color} !important; }}
+        
+        /* Custom Button Style to match screenshot */
+        div.stButton > button {{
+            background-color: {btn_bg};
+            color: {btn_text};
+            border: none;
+            border-radius: 4px;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            width: 100%;
+        }}
+        div.stButton > button:hover {{
+            background-color: #b0281f; /* Darker red on hover */
+            color: {btn_text};
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -103,26 +116,25 @@ def fetch_quickfs_data(ticker, api_key, retries=2):
         except requests.exceptions.RequestException as e: st.error(f"🚨 Connection Error: {e}"); return None
     return None
 
-def extract_historical_df(data, years=10):
+def extract_historical_df(data, start_year, end_year):
     """
-    Extracts last 10 years + TTM into a clean DataFrame for the 'View Data' module.
+    Extracts data filtered by Start Year and End Year.
     """
     try:
         fin = data.get("data", {}).get("financials", {})
         annual = fin.get("annual", {})
-        ttm = fin.get("ttm", {})
         
         # Get Fiscal Years (e.g. 2014, 2015...)
         dates = data.get("data", {}).get("metadata", {}).get("period_end_date", [])
-        years_list = [d.split("-")[0] for d in dates]
-
-        # Metric Config: Label -> [Key candidates]
+        years_list = [int(d.split("-")[0]) for d in dates] # Convert to int for comparison
+        
+        # Metric Config
         metrics_map = {
             "Revenue": ["revenue"],
             "Gross Profit": ["gross_profit"],
             "Operating Profit": ["operating_income"],
             "EBITDA": ["ebitda"],
-            "NOPAT": ["nopat_derived"], # Calc handled below
+            "NOPAT": ["nopat_derived"],
             "Net Income": ["net_income"],
             "EPS (Diluted)": ["eps_diluted"],
             "Operating Cash Flow": ["cf_cfo", "cfo"],
@@ -131,11 +143,10 @@ def extract_historical_df(data, years=10):
 
         history_data = {}
 
-        # 1. Helper to get TTM value
+        # 1. Helper for TTM
         def get_ttm(keys):
             for k in keys:
                 if "ttm" in fin and k in fin["ttm"]: return fin["ttm"][k]
-            # Fallback sum last 4 qtrs
             q = fin.get("quarterly", {})
             for k in keys:
                 if k in q and q[k]:
@@ -143,60 +154,68 @@ def extract_historical_df(data, years=10):
                      if len(valid) >= 4: return sum(valid[-4:])
             return None
 
-        # 2. Build rows
+        # 2. Determine indices for slicing based on selected years
+        # Years are usually oldest -> newest in API list? QuickFS metadata usually matches the list order.
+        # Let's map Year -> Index
+        year_to_idx = {y: i for i, y in enumerate(years_list)}
+        
+        # Filter valid years based on selection
+        # Handle "TTM" end_year logic separately
+        include_ttm = (end_year == "TTM")
+        numeric_end = max(years_list) if include_ttm else int(end_year)
+        numeric_start = int(start_year)
+        
+        selected_years = [y for y in years_list if numeric_start <= y <= numeric_end]
+        selected_indices = [year_to_idx[y] for y in selected_years]
+
+        # 3. Build rows
         for label, keys in metrics_map.items():
             row_data = []
             
-            # TTM Column
-            ttm_val = get_ttm(keys)
-            
-            # Manual NOPAT TTM fallback
-            if label == "NOPAT" and ttm_val is None:
-                op = get_ttm(["operating_income"])
-                tax = get_ttm(["income_tax"])
-                if op is not None:
-                     ttm_val = (op - tax) if tax is not None else (op * 0.79)
-            
-            row_data.append(ttm_val)
-
-            # History Columns
+            # Get annual data for selected years
             valid_key = next((k for k in keys if k in annual), None)
             
             if valid_key:
-                annual_vals = annual[valid_key]
-                # Manual NOPAT History fallback
+                full_vals = annual[valid_key]
+                # Special NOPAT logic
                 if label == "NOPAT" and not valid_key:
                     op_hist = annual.get("operating_income", [])
                     tax_hist = annual.get("income_tax", [])
-                    annual_vals = []
+                    full_vals = []
                     for i in range(len(op_hist)):
-                        try: annual_vals.append((op_hist[i] or 0) - (tax_hist[i] or 0))
-                        except: annual_vals.append(None)
-
-                # Slice last N years
-                sliced_vals = annual_vals[-years:]
-                sliced_vals.reverse() # Newest first for table
-                row_data.extend(sliced_vals)
-            else:
-                row_data.extend([None] * years)
+                        try: full_vals.append((op_hist[i] or 0) - (tax_hist[i] or 0))
+                        except: full_vals.append(None)
                 
+                # Extract specific indices
+                for idx in selected_indices:
+                    if idx < len(full_vals):
+                        row_data.append(full_vals[idx])
+                    else:
+                        row_data.append(None)
+            else:
+                row_data.extend([None] * len(selected_years))
+            
+            # Append TTM if selected
+            if include_ttm:
+                ttm_val = get_ttm(keys)
+                if label == "NOPAT" and ttm_val is None:
+                    op = get_ttm(["operating_income"])
+                    tax = get_ttm(["income_tax"])
+                    if op is not None: ttm_val = (op - tax) if tax is not None else (op * 0.79)
+                row_data.append(ttm_val)
+
             history_data[label] = row_data
 
-        # Columns: TTM, 2023, 2022...
-        cols = ["TTM"]
-        rev_years = years_list[-years:]
-        rev_years.reverse()
-        cols.extend(rev_years)
+        # Columns
+        cols = [str(y) for y in selected_years]
+        if include_ttm:
+            cols.append("TTM")
 
-        # Pad rows to match columns length if history is short
-        final_data = {}
-        for k, v in history_data.items():
-            if len(v) < len(cols): v.extend([None]*(len(cols)-len(v)))
-            final_data[k] = v[:len(cols)]
-
-        df = pd.DataFrame(final_data, index=cols).T
+        df = pd.DataFrame(history_data, index=cols).T
         return df
+
     except Exception as e:
+        st.error(f"Error processing history: {e}")
         return pd.DataFrame()
 
 def format_currency(value, currency_symbol="$"):
@@ -221,122 +240,150 @@ def render_card(label, value_str, description, accent_color="#4285F4"):
 # --- Main App ---
 st.set_page_config(page_title="Financial Dashboard", layout="wide")
 
+# (1) Clean Sidebar - Dark Mode Only
 with st.sidebar:
-    st.header("Search")
-    
-    # (1) Ticker Search Logic
-    search_input = st.text_input("Enter Ticker (e.g. AAPL:US)", value="")
-    st.markdown("**Quick Select:**")
-    selected_example = st.selectbox("Choose Example", ["(Custom Search)"] + list(EXAMPLE_STOCKS.keys()))
-    
-    if search_input: target_ticker = search_input.strip()
-    elif selected_example != "(Custom Search)": target_ticker = EXAMPLE_STOCKS[selected_example]
-    else: target_ticker = "DNP:PL" # Default
-
-    st.markdown("---")
-    
-    # (2) Filter: 10 Years Back
-    st.subheader("Time Period")
-    # A slider to control how far back we look (visual control) or a simple toggle
-    # Since prompt asked to filter/sort, a selectbox is clean.
-    selected_period = st.selectbox("Display Period", ["TTM (Current Snapshot)", "10-Year Overview"])
-
-    st.markdown("---")
+    st.header("Settings")
     st.toggle("🌙 Dark Mode", value=st.session_state.dark_mode, on_change=toggle_dark_mode)
+    st.markdown("---")
     st.caption("Data source: **QuickFS API**")
 
 local_css(st.session_state.dark_mode)
 
-# Fetch Data
-json_data = fetch_quickfs_data(target_ticker, API_KEY)
+# (3) Search & Filter Layout (Top of Main Page)
+col_search, col_btn = st.columns([4, 1])
+with col_search:
+    search_input = st.text_input("Enter Ticker", placeholder="e.g. APG:US", label_visibility="collapsed")
+with col_btn:
+    load_btn = st.button("Load Financials")
 
-if json_data:
+st.markdown("---")
+
+col_start, col_end = st.columns(2)
+# We need to default these years, but they might change based on data availability
+# For now, hardcode reasonable defaults or dynamic lists.
+current_year = datetime.now().year
+years_options = list(range(2000, current_year + 1))
+years_options_str = [str(y) for y in years_options]
+
+with col_start:
+    start_year_sel = st.selectbox("Start Year", years_options_str, index=len(years_options_str)-10 if len(years_options_str)>10 else 0)
+with col_end:
+    # End year can be a year OR TTM
+    end_options = years_options_str + ["TTM"]
+    end_year_sel = st.selectbox("End Year", end_options, index=len(end_options)-1)
+
+st.markdown("---")
+
+# Logic to load data
+# We store data in session state to persist between filter changes without re-fetching API if ticker hasn't changed
+if 'data_cache' not in st.session_state:
+    st.session_state.data_cache = None
+if 'current_ticker' not in st.session_state:
+    st.session_state.current_ticker = ""
+
+# Trigger load
+if load_btn and search_input:
+    ticker = search_input.strip()
+    with st.spinner(f"Loading data for {ticker}..."):
+        data = fetch_quickfs_data(ticker, API_KEY)
+        if data:
+            st.session_state.data_cache = data
+            st.session_state.current_ticker = ticker
+        else:
+            st.session_state.data_cache = None
+
+# Display Data if available
+if st.session_state.data_cache:
+    json_data = st.session_state.data_cache
+    ticker = st.session_state.current_ticker
+    
     meta = json_data.get("data", {}).get("metadata", {})
     currency = meta.get("currency", "USD")
     curr_sym = "$" if currency == "USD" else (currency + " ")
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title(f"{meta.get('name', target_ticker)}")
-        st.markdown(f"#### Ticker: **{target_ticker}** | Currency: **{currency}**")
-    st.divider()
+    st.markdown(f"## {meta.get('name', ticker)} <span style='font-size:1.2rem; color: gray'>({ticker})</span>", unsafe_allow_html=True)
+    st.caption(f"Reporting Currency: {currency}")
 
-    # --- Data Processing ---
-    # Extract DataFrame for History View & Raw Data Module
-    df_history = extract_historical_df(json_data, years=10)
-    
-    # Extract Single TTM Values for Cards (from the DataFrame for consistency)
-    try:
-        # Get column 0 (TTM) values securely
-        def get_val(lbl): return df_history.loc[lbl, "TTM"] if (not df_history.empty and lbl in df_history.index) else None
+    # Process Data based on Filters
+    # Check if end year < start year (validation)
+    valid_range = True
+    if end_year_sel != "TTM" and int(end_year_sel) < int(start_year_sel):
+        st.warning("⚠️ End Year cannot be before Start Year.")
+        valid_range = False
+
+    if valid_range:
+        df_display = extract_historical_df(json_data, start_year_sel, end_year_sel)
         
-        rev = get_val("Revenue")
-        gp = get_val("Gross Profit")
-        op = get_val("Operating Profit")
-        ebitda = get_val("EBITDA")
-        ni = get_val("Net Income")
-        eps = get_val("EPS (Diluted)")
-        nopat = get_val("NOPAT")
-        ocf = get_val("Operating Cash Flow")
-        fcf = get_val("Free Cash Flow")
-    except:
-        rev=gp=op=ebitda=ni=eps=nopat=ocf=fcf=None
-
-    # --- VIEW 1: TTM CARDS ---
-    if selected_period == "TTM (Current Snapshot)":
-        st.subheader("📊 Income Statement")
-        c_income = "#3b82f6"
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: render_card("1. Revenue (Sales) — Top-Line", format_currency(rev, curr_sym), "Top-line sales indicate market demand for the product or service and the size of the operation.", c_income)
-        with c2: render_card("2. Gross Profit (Production Efficiency)", format_currency(gp, curr_sym), "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.", c_income)
-        with c3: render_card("3. Operating Profit / EBIT (Profitability)", format_currency(op, curr_sym), "Operating profit equals gross profit minus operating expenses such as marketing, G&A, R&D, and depreciation. G&A (General and Administrative) covers indirect business costs like office rent, utilities, administrative salaries, and insurance, while R&D (Research and Development) covers costs to create or improve products, such as engineers’ salaries, lab work, and testing. It is a key measure of how profitable the core business is, without the effects of taxes and financing decisions.", c_income)
-        with c4: render_card("4. EBITDA (Operating Profit)", format_currency(ebitda, curr_sym), "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It is calculated as operating profit plus depreciation and amortization, and is often used as a proxy for cash flow because non-cash charges like depreciation do not represent actual cash outflows. This makes EBITDA a popular metric for valuing companies, especially in tech and infrastructure sectors, as it focuses on operational cash generation before financing and tax effects.", c_income)
-        
-        st.markdown(" ") 
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: render_card("5. NOPAT (After-Tax Operating Profit)", format_currency(nopat, curr_sym), "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.", c_income)
-        with c2: render_card("6. Net Income (Earnings) — Bottom-Line Profit", format_currency(ni, curr_sym), "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.", c_income)
-        with c3: render_card("7. Earnings Per Share (EPS)", f"{curr_sym}{eps:.2f}" if eps else "N/A", "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.​", c_income)
-        with c4: st.empty() 
-
-        st.markdown("---")
-
-        st.subheader("💸 Cash Flow")
-        c_cash = "#10b981"
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: render_card("8. Operating Cash Flow", format_currency(ocf, curr_sym), "Operating cash flow is the cash from operations that actually comes into or leaves the company from its day-to-day business activities. It adjusts net income for non-cash items and changes in working capital, so sales made on credit (like unpaid invoices in accounts receivable) increase net income but do not increase operating cash flow until the cash is collected.", c_cash)
-        with c2: render_card("9. Free Cash Flow (Truly Free Money)", format_currency(fcf, curr_sym), "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt.", c_cash)
-        with c3: st.empty()
-        with c4: st.empty()
-
-    # --- VIEW 2: 10-YEAR HISTORY (Chart View) ---
-    else:
-        st.subheader(f"📅 10-Year Historical Trend")
-        if not df_history.empty:
-            metric_to_plot = st.selectbox("Select Metric to Visualize", df_history.index.tolist())
+        # --- VIEW 1: Cards (Displaying the LAST column of the selection - usually TTM or latest year) ---
+        # If user selects 2018-2020, cards show 2020 data. If TTM selected, cards show TTM.
+        if not df_display.empty:
+            latest_col = df_display.columns[-1]
+            st.subheader(f"📊 Snapshot ({latest_col})")
             
-            # Prepare data for chart: Reverse so time goes Left -> Right
-            chart_series = df_history.loc[metric_to_plot]
-            # Remove TTM for chart (sometimes confuses scale) or keep it. Let's keep it.
-            # Reverse order so Oldest Year is Left, TTM is Right
-            chart_data = chart_series.iloc[::-1]
+            def get_val(lbl): return df_display.loc[lbl, latest_col] if lbl in df_display.index else None
             
-            st.bar_chart(chart_data)
+            rev = get_val("Revenue")
+            gp = get_val("Gross Profit")
+            op = get_val("Operating Profit")
+            ebitda = get_val("EBITDA")
+            ni = get_val("Net Income")
+            eps = get_val("EPS (Diluted)")
+            nopat = get_val("NOPAT")
+            ocf = get_val("Operating Cash Flow")
+            fcf = get_val("Free Cash Flow")
+
+            # Explanations
+            desc_revenue = "Top-line sales indicate market demand for the product or service and the size of the operation."
+            desc_gp = "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency."
+            desc_op = "Operating profit equals gross profit minus operating expenses (Marketing, G&A, R&D). Core profitability."
+            desc_ebitda = "Earnings Before Interest, Taxes, Depreciation, and Amortization. Proxy for cash flow."
+            desc_nopat = "NOPAT shows potential cash earnings if the company had no debt (unlevered)."
+            desc_ni = "Net income is the profit left for shareholders after all expenses and taxes."
+            desc_eps = "Earnings per share (EPS) shows how much profit is allocated to each share."
+            desc_ocf = "Cash actually generated from day-to-day business operations."
+            desc_fcf = "Cash left over after operating costs and CapEx. Truly free money for shareholders."
+
+            c_income = "#3b82f6"
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: render_card("Revenue", format_currency(rev, curr_sym), desc_revenue, c_income)
+            with c2: render_card("Gross Profit", format_currency(gp, curr_sym), desc_gp, c_income)
+            with c3: render_card("Operating Profit", format_currency(op, curr_sym), desc_op, c_income)
+            with c4: render_card("EBITDA", format_currency(ebitda, curr_sym), desc_ebitda, c_income)
+            
+            st.markdown(" ") 
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: render_card("NOPAT", format_currency(nopat, curr_sym), desc_nopat, c_income)
+            with c2: render_card("Net Income", format_currency(ni, curr_sym), desc_ni, c_income)
+            with c3: render_card("EPS (Diluted)", f"{curr_sym}{eps:.2f}" if eps else "N/A", desc_eps, c_income)
+            with c4: st.empty() 
+
+            st.markdown("---")
+
+            st.subheader(f"💸 Cash Flow ({latest_col})")
+            c_cash = "#10b981"
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: render_card("Operating Cash Flow", format_currency(ocf, curr_sym), desc_ocf, c_cash)
+            with c2: render_card("Free Cash Flow", format_currency(fcf, curr_sym), desc_fcf, c_cash)
+            with c3: st.empty()
+            with c4: st.empty()
+
+            # --- VIEW 2: Raw Data (Expandable) ---
+            st.markdown("---")
+            with st.expander("📂 View Raw Data (Selected Period)"):
+                st.markdown("### Historical Financials Table")
+                # Format numbers
+                df_fmt = df_display.copy()
+                for col in df_fmt.columns:
+                    df_fmt[col] = df_fmt[col].apply(lambda x: format_currency(x, curr_sym) if pd.notnull(x) else "N/A")
+                st.dataframe(df_fmt, use_container_width=True)
+                
+                # Charting
+                st.markdown("### Trend Visualization")
+                metric_to_plot = st.selectbox("Select Metric", df_display.index.tolist())
+                # Plot needs numeric data
+                st.bar_chart(df_display.loc[metric_to_plot])
         else:
-            st.warning("Historical data not available.")
+            st.warning("No data available for the selected period.")
 
-    # --- (3) Expandable Raw Data Module ---
-    st.markdown("---")
-    with st.expander("📂 View Raw Data (Period Analysis)"):
-        st.markdown("### Historical Financials Table")
-        if not df_history.empty:
-            # Format numbers for display
-            df_display = df_history.copy()
-            for col in df_display.columns:
-                df_display[col] = df_display[col].apply(lambda x: format_currency(x, curr_sym) if pd.notnull(x) else "N/A")
-            
-            st.dataframe(df_display, use_container_width=True)
-            
-            st.caption("Columns represent Fiscal Years. TTM = Trailing Twelve Months.")
-        else:
-            st.info("No raw data generated.")
+elif load_btn and not search_input:
+    st.warning("Please enter a ticker symbol.")
