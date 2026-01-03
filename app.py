@@ -18,7 +18,7 @@ if 'dark_mode' not in st.session_state:
 def toggle_dark_mode():
     st.session_state.dark_mode = not st.session_state.dark_mode
 
-# --- Dynamic CSS for Material Design ---
+# --- Dynamic CSS ---
 def local_css(is_dark):
     if is_dark:
         bg_color = "#0e1117"
@@ -28,7 +28,7 @@ def local_css(is_dark):
         shadow_color = "rgba(0, 0, 0, 0.3)"
         label_color = "#d0d0d0"
         desc_color = "#b0b0b0"
-        btn_bg = "#d93025" 
+        btn_bg = "#d93025"
         btn_text = "#ffffff"
     else:
         bg_color = "#ffffff"
@@ -56,10 +56,7 @@ def local_css(is_dark):
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }}
-        div.metric-card:hover {{ transform: translateY(-5px); box-shadow: 0 10px 15px {shadow_color}; }}
-
         h4.metric-label {{
             font-size: 0.9rem;
             font-weight: 600;
@@ -70,7 +67,6 @@ def local_css(is_dark):
             letter-spacing: 0.05em;
         }}
         div.metric-value {{ font-size: 2.2rem; font-weight: 700; color: {text_color}; margin-bottom: 16px; }}
-
         div.metric-desc {{
             font-size: 0.95rem;
             line-height: 1.5;
@@ -80,23 +76,16 @@ def local_css(is_dark):
             padding-top: 12px;
         }}
         
-        .stAlert {{ border-radius: 8px; }}
-        h1, h2, h3, h4, h5, h6, .stMarkdown, .stText, .stRadio label {{ color: {text_color} !important; }}
-        
-        /* Custom Button Style */
+        /* Button & Inputs */
         div.stButton > button {{
             background-color: {btn_bg};
             color: {btn_text};
             border: none;
-            border-radius: 4px;
-            padding: 0.5rem 1rem;
-            font-weight: 500;
             width: 100%;
+            font-weight: 500;
         }}
-        div.stButton > button:hover {{
-            background-color: #b0281f; 
-            color: {btn_text};
-        }}
+        div.stButton > button:hover {{ background-color: #b0281f; color: {btn_text}; }}
+        h1, h2, h3, h4, h5, h6, .stMarkdown, .stText, .stRadio label {{ color: {text_color} !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -109,146 +98,149 @@ def fetch_quickfs_data(ticker, api_key, retries=2):
             if response.status_code == 200: return response.json()
             elif response.status_code >= 500:
                 if attempt < retries: time.sleep(1); continue
-                else: st.error(f"❌ QuickFS Server Error (500) for {ticker}. The API is temporarily down for this stock."); return None
+                st.error(f"❌ QuickFS Server Error (500) for {ticker}."); return None
             elif response.status_code == 404:
-                st.error(f"❌ Ticker '{ticker}' not found. Please check format (e.g. AAPL:US)."); return None
-            else: st.error(f"❌ Error {response.status_code}: {response.reason} for {ticker}"); return None
-        except requests.exceptions.RequestException as e: st.error(f"🚨 Connection Error: {e}"); return None
+                st.error(f"❌ Ticker '{ticker}' not found."); return None
+            else: st.error(f"❌ Error {response.status_code}: {response.reason}"); return None
+        except requests.exceptions.RequestException: return None
     return None
 
 def extract_historical_df(data, start_year, end_year):
     """
-    Robust extraction of historical data using Pandas for alignment.
-    Prevents 'max() empty sequence' errors and handles mismatched list lengths.
+    Robust data extraction using dictionary mapping to prevent index errors.
     """
     try:
-        # 1. Access Nested Data Safely
-        fin = data.get("data", {}).get("financials", {})
+        # 1. Safe Access to API sections
+        d = data.get("data", {})
+        fin = d.get("financials", {})
         annual = fin.get("annual", {})
         ttm_data = fin.get("ttm", {})
-        meta = data.get("data", {}).get("metadata", {})
+        meta = d.get("metadata", {})
         
-        # 2. Extract and Parse Years
+        # 2. Parse Dates (The "Index")
         raw_dates = meta.get("period_end_date", [])
-        if not raw_dates:
-            return pd.DataFrame() # Graceful exit if no dates
-
-        # Convert dates "2012-12-31" to integers [2012, 2013...]
-        years = []
-        for d in raw_dates:
-            try:
-                years.append(int(str(d).split("-")[0]))
-            except:
-                pass # Skip bad formats
+        if not raw_dates: return pd.DataFrame()
         
-        if not years:
-            return pd.DataFrame() # Graceful exit if parsing failed
+        # Create a list of years. QuickFS sends oldest -> newest.
+        # Example: [2014, 2015, ... 2023]
+        years = []
+        for dt in raw_dates:
+            try: years.append(int(str(dt).split("-")[0]))
+            except: years.append(None)
+            
+        if not years: return pd.DataFrame()
 
-        # 3. Define Metrics Map
-        metrics_map = {
+        # 3. Define Metric Map
+        # Note: We include 'income_tax' solely for NOPAT calculation
+        map_keys = {
             "Revenue": ["revenue"],
             "Gross Profit": ["gross_profit"],
             "Operating Profit": ["operating_income"],
             "EBITDA": ["ebitda"],
-            "NOPAT": ["nopat_derived"],
             "Net Income": ["net_income"],
             "EPS (Diluted)": ["eps_diluted"],
             "Operating Cash Flow": ["cf_cfo", "cfo"],
-            "Free Cash Flow": ["fcf"]
+            "Free Cash Flow": ["fcf"],
+            "Income Tax": ["income_tax"] # Hidden helper
         }
 
-        # 4. Construct Full DataFrame (Annual Data)
-        # We build a dictionary {Metric: [Values...]} then DataFrame it
-        df_data = {}
+        # 4. Build DataFrame Dictionary (Year -> Value)
+        # We zip the 'years' list with the 'data' list. This aligns them perfectly.
+        df_dict = {}
         
-        for label, keys in metrics_map.items():
-            # Find the first key that exists in annual data
+        for label, keys in map_keys.items():
+            # Find valid key in annual data
             valid_key = next((k for k in keys if k in annual), None)
-            values = []
-
-            if valid_key:
-                values = annual[valid_key]
-                # Fallback for NOPAT manual calc if key exists but is empty, or pure fallback
-                if label == "NOPAT" and (not values or valid_key == "nopat_derived"):
-                    # Check if empty, try calculating
-                    if not values:
-                        op_hist = annual.get("operating_income", [])
-                        tax_hist = annual.get("income_tax", [])
-                        if op_hist and tax_hist:
-                             # Zip allows partial calc if lengths differ
-                             values = [(o or 0) - (t or 0) for o, t in zip(op_hist, tax_hist)]
             
-            # Align list length with years length
-            # If data is shorter/longer, pandas handles index alignment better, 
-            # but here we just pad to be safe for list construction
-            if values:
-                if len(values) < len(years):
-                    values = values + [None] * (len(years) - len(values))
-                elif len(values) > len(years):
-                    values = values[:len(years)]
-            else:
-                values = [None] * len(years)
+            # Create a dictionary for this metric: {2014: 100, 2015: 110...}
+            metric_series = {}
+            if valid_key and annual[valid_key]:
+                data_list = annual[valid_key]
+                # Zip strictly ensures we only pair available years with available data
+                for y, val in zip(years, data_list):
+                    if y is not None:
+                        metric_series[y] = val
+            
+            df_dict[label] = metric_series
 
-            df_data[label] = values
-
-        # Create DataFrame indexed by Year
-        df = pd.DataFrame(df_data, index=years)
+        # 5. Convert to Pandas DataFrame
+        df = pd.DataFrame(df_dict)
         
-        # 5. Filter by Start/End Year
-        # Sort index to ensure range works (oldest -> newest)
+        # Calculate NOPAT safely using Pandas Vectorization
+        # NOPAT = Operating Profit - Income Tax
+        if "Operating Profit" in df.columns:
+            if "Income Tax" in df.columns:
+                df["NOPAT"] = df["Operating Profit"] - df["Income Tax"]
+            else:
+                # Fallback: 21% Tax assumption
+                df["NOPAT"] = df["Operating Profit"] * (1 - 0.21)
+        
+        # Drop the helper 'Income Tax' column if you don't want to display it
+        if "Income Tax" in df.columns:
+            df = df.drop(columns=["Income Tax"])
+
+        # 6. Filter by User Selection
+        # Ensure index is numeric and sorted
+        df.index = df.index.astype(int)
         df.sort_index(inplace=True)
         
         target_start = int(start_year)
-        
         if end_year == "TTM":
-            target_end = df.index.max() if not df.empty else 2100 # Default huge if empty
+            target_end = 2100 # Future-proof max
         else:
             target_end = int(end_year)
-
-        # Boolean Mask Filter
-        df_filtered = df[(df.index >= target_start) & (df.index <= target_end)].transpose()
-        
-        # 6. Append TTM Column if requested
-        if end_year == "TTM":
-            ttm_col = []
-            for label in df_filtered.index:
-                keys = metrics_map[label]
-                
-                # Fetch TTM
-                val = None
-                # Try explicit TTM key
-                for k in keys:
-                    if k in ttm_data:
-                        val = ttm_data[k]
-                        break
-                
-                # NOPAT TTM Calc Fallback
-                if label == "NOPAT" and val is None:
-                    op = ttm_data.get("operating_income")
-                    tax = ttm_data.get("income_tax")
-                    if op is not None:
-                        val = (op - tax) if tax is not None else (op * 0.79) # 21% tax rate assumption
-
-                ttm_col.append(val)
             
-            # Add as new column
-            df_filtered["TTM"] = ttm_col
+        # Filter Rows
+        df = df[(df.index >= target_start) & (df.index <= target_end)]
+        
+        # 7. Handle TTM Column
+        if end_year == "TTM":
+            # We add a new row or column. For display, we want TTM as the *last column* in a transposed view.
+            # Let's prepare a TTM Series
+            ttm_vals = {}
+            for label in df.columns:
+                # Find TTM value from API 'ttm' dictionary
+                # We need to map 'label' back to API keys. This is a bit tricky.
+                # Easier way: Re-check the map_keys
+                found = None
+                
+                # Special NOPAT Logic for TTM
+                if label == "NOPAT":
+                     op = ttm_data.get("operating_income")
+                     tax = ttm_data.get("income_tax")
+                     if op is not None:
+                         found = (op - tax) if tax is not None else (op * 0.79)
+                else:
+                    # Standard Lookup
+                    # Find which API keys correspond to this Label
+                    candidates = map_keys.get(label, [])
+                    for k in candidates:
+                        if k in ttm_data:
+                            found = ttm_data[k]
+                            break
+                            
+                ttm_vals[label] = found
+            
+            # Add TTM as a new row with index 9999 (temp)
+            df.loc[9999] = ttm_vals
+            # Rename index 9999 to 'TTM'
+            df.rename(index={9999: "TTM"}, inplace=True)
 
-        return df_filtered
+        # Transpose: Metrics become Rows, Years become Columns
+        return df.T
 
     except Exception as e:
-        # In production, you might want to log 'e'
+        # st.error(f"Debug Error: {e}") # Uncomment for debugging
         return pd.DataFrame()
 
 def format_currency(value, currency_symbol="$"):
-    if value is None: return "N/A"
+    if value is None or pd.isna(value): return "N/A"
     try:
         abs_val = abs(value)
         if abs_val >= 1_000_000_000: return f"{currency_symbol}{value / 1_000_000_000:.2f}B"
         elif abs_val >= 1_000_000: return f"{currency_symbol}{value / 1_000_000:.2f}M"
         else: return f"{currency_symbol}{value:,.2f}"
-    except:
-        return "N/A"
+    except: return "N/A"
 
 def render_card(label, value_str, description, accent_color="#4285F4"):
     html = f"""
@@ -265,7 +257,7 @@ def render_card(label, value_str, description, accent_color="#4285F4"):
 # --- Main App ---
 st.set_page_config(page_title="Financial Dashboard", layout="wide")
 
-# (1) Clean Sidebar - Dark Mode Only
+# (1) Clean Sidebar
 with st.sidebar:
     st.header("Settings")
     st.toggle("🌙 Dark Mode", value=st.session_state.dark_mode, on_change=toggle_dark_mode)
@@ -274,7 +266,7 @@ with st.sidebar:
 
 local_css(st.session_state.dark_mode)
 
-# (3) Search & Filter Layout
+# (2) Top Search Bar
 col_search, col_btn = st.columns([4, 1])
 with col_search:
     search_input = st.text_input("Enter Ticker", placeholder="e.g. APG:US", label_visibility="collapsed")
@@ -283,31 +275,30 @@ with col_btn:
 
 st.markdown("---")
 
+# (3) Filters
 col_start, col_end = st.columns(2)
 current_year = datetime.now().year
-years_options = list(range(2000, current_year + 1))
-years_options_str = [str(y) for y in years_options]
+years_range = list(range(2000, current_year + 1))
+years_str = [str(y) for y in years_range]
 
 with col_start:
-    # Default to 5 years ago if possible
-    default_start_idx = len(years_options_str) - 6 if len(years_options_str) > 6 else 0
-    start_year_sel = st.selectbox("Start Year", years_options_str, index=default_start_idx)
+    # Default to 2017 or similar
+    def_idx = years_str.index("2017") if "2017" in years_str else 0
+    start_year_sel = st.selectbox("Start Year", years_str, index=def_idx)
 
 with col_end:
-    end_options = years_options_str + ["TTM"]
-    end_year_sel = st.selectbox("End Year", end_options, index=len(end_options)-1)
+    end_opts = years_str + ["TTM"]
+    end_year_sel = st.selectbox("End Year", end_opts, index=len(end_opts)-1)
 
 st.markdown("---")
 
-# Logic to load data
-if 'data_cache' not in st.session_state:
-    st.session_state.data_cache = None
-if 'current_ticker' not in st.session_state:
-    st.session_state.current_ticker = ""
+# Logic: Persist Data
+if 'data_cache' not in st.session_state: st.session_state.data_cache = None
+if 'current_ticker' not in st.session_state: st.session_state.current_ticker = ""
 
 if load_btn and search_input:
     ticker = search_input.strip()
-    with st.spinner(f"Loading data for {ticker}..."):
+    with st.spinner(f"Loading {ticker}..."):
         data = fetch_quickfs_data(ticker, API_KEY)
         if data:
             st.session_state.data_cache = data
@@ -315,95 +306,82 @@ if load_btn and search_input:
         else:
             st.session_state.data_cache = None
 
-# Display Data if available
+# Render Data
 if st.session_state.data_cache:
     json_data = st.session_state.data_cache
     ticker = st.session_state.current_ticker
-    
     meta = json_data.get("data", {}).get("metadata", {})
     currency = meta.get("currency", "USD")
     curr_sym = "$" if currency == "USD" else (currency + " ")
 
-    st.markdown(f"## {meta.get('name', ticker)} <span style='font-size:1.2rem; color: gray'>({ticker})</span>", unsafe_allow_html=True)
+    st.markdown(f"## {meta.get('name', ticker)} <span style='color:gray'>({ticker})</span>", unsafe_allow_html=True)
     st.caption(f"Reporting Currency: {currency}")
 
-    # Validate Dates
-    valid_range = True
+    # Validate Inputs
+    valid = True
     if end_year_sel != "TTM" and int(end_year_sel) < int(start_year_sel):
-        st.warning("⚠️ End Year cannot be before Start Year.")
-        valid_range = False
+        st.error("End Year must be after Start Year.")
+        valid = False
 
-    if valid_range:
-        df_display = extract_historical_df(json_data, start_year_sel, end_year_sel)
+    if valid:
+        # Extract Data
+        df = extract_historical_df(json_data, start_year_sel, end_year_sel)
         
-        if not df_display.empty:
-            # --- VIEW 1: Cards (Displaying Latest Available Data in Selection) ---
-            latest_col = df_display.columns[-1]
+        if not df.empty:
+            # 1. Cards View (Snapshot of the LAST column - TTM or End Year)
+            latest_col = df.columns[-1] # "TTM" or "2023"
+            
             st.subheader(f"📊 Snapshot ({latest_col})")
             
-            def get_val(lbl): return df_display.loc[lbl, latest_col] if lbl in df_display.index else None
-            
-            rev = get_val("Revenue")
-            gp = get_val("Gross Profit")
-            op = get_val("Operating Profit")
-            ebitda = get_val("EBITDA")
-            ni = get_val("Net Income")
-            eps = get_val("EPS (Diluted)")
-            nopat = get_val("NOPAT")
-            ocf = get_val("Operating Cash Flow")
-            fcf = get_val("Free Cash Flow")
+            # Helper to get value
+            def val(metric): return df.loc[metric, latest_col] if metric in df.index else None
 
-            # Descriptions
-            desc_revenue = "Top-line sales indicate market demand for the product or service and the size of the operation."
-            desc_gp = "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency."
-            desc_op = "Operating profit equals gross profit minus operating expenses (Marketing, G&A, R&D). Core profitability."
-            desc_ebitda = "Earnings Before Interest, Taxes, Depreciation, and Amortization. Proxy for cash flow."
-            desc_nopat = "NOPAT shows potential cash earnings if the company had no debt (unlevered)."
-            desc_ni = "Net income is the profit left for shareholders after all expenses and taxes."
-            desc_eps = "Earnings per share (EPS) shows how much profit is allocated to each share."
-            desc_ocf = "Cash actually generated from day-to-day business operations."
-            desc_fcf = "Cash left over after operating costs and CapEx. Truly free money for shareholders."
-
-            c_income = "#3b82f6"
+            # Cards Logic
+            c_inc = "#3b82f6"
             c1, c2, c3, c4 = st.columns(4)
-            with c1: render_card("Revenue", format_currency(rev, curr_sym), desc_revenue, c_income)
-            with c2: render_card("Gross Profit", format_currency(gp, curr_sym), desc_gp, c_income)
-            with c3: render_card("Operating Profit", format_currency(op, curr_sym), desc_op, c_income)
-            with c4: render_card("EBITDA", format_currency(ebitda, curr_sym), desc_ebitda, c_income)
-            
-            st.markdown(" ") 
-            c1, c2, c3, c4 = st.columns(4)
-            with c1: render_card("NOPAT", format_currency(nopat, curr_sym), desc_nopat, c_income)
-            with c2: render_card("Net Income", format_currency(ni, curr_sym), desc_ni, c_income)
-            with c3: render_card("EPS (Diluted)", f"{curr_sym}{eps:.2f}" if eps else "N/A", desc_eps, c_income)
-            with c4: st.empty() 
+            with c1: render_card("Revenue", format_currency(val("Revenue"), curr_sym), "Top-line sales indicating market demand.", c_inc)
+            with c2: render_card("Gross Profit", format_currency(val("Gross Profit"), curr_sym), "Revenue minus COGS. Production efficiency.", c_inc)
+            with c3: render_card("Operating Profit", format_currency(val("Operating Profit"), curr_sym), "Core business profit (EBIT).", c_inc)
+            with c4: render_card("EBITDA", format_currency(val("EBITDA"), curr_sym), "Proxy for operational cash flow.", c_inc)
 
-            st.markdown("---")
-
-            st.subheader(f"💸 Cash Flow ({latest_col})")
-            c_cash = "#10b981"
+            st.markdown("")
             c1, c2, c3, c4 = st.columns(4)
-            with c1: render_card("Operating Cash Flow", format_currency(ocf, curr_sym), desc_ocf, c_cash)
-            with c2: render_card("Free Cash Flow", format_currency(fcf, curr_sym), desc_fcf, c_cash)
-            with c3: st.empty()
+            with c1: render_card("NOPAT", format_currency(val("NOPAT"), curr_sym), "Potential cash earnings if debt-free.", c_inc)
+            with c2: render_card("Net Income", format_currency(val("Net Income"), curr_sym), "Bottom-line earnings for shareholders.", c_inc)
+            with c3: render_card("EPS (Diluted)", f"{curr_sym}{val('EPS (Diluted)'):.2f}" if val('EPS (Diluted)') else "N/A", "Profit attributed to each share.", c_inc)
             with c4: st.empty()
 
-            # --- VIEW 2: Raw Data ---
+            st.markdown("---")
+            st.subheader(f"💸 Cash Flow ({latest_col})")
+            c_cf = "#10b981"
+            c1, c2, c3, c4 = st.columns(4)
+            with c1: render_card("Operating Cash Flow", format_currency(val("Operating Cash Flow"), curr_sym), "Cash from actual operations.", c_cf)
+            with c2: render_card("Free Cash Flow", format_currency(val("Free Cash Flow"), curr_sym), "Real owner's earnings (OCF - CapEx).", c_cf)
+            with c3: st.empty()
+            with c4: st.empty()
+            
+            # 2. Raw Data View
             st.markdown("---")
             with st.expander("📂 View Raw Data (Selected Period)", expanded=True):
-                st.markdown("### Historical Financials Table")
-                df_fmt = df_display.copy()
-                for col in df_fmt.columns:
-                    df_fmt[col] = df_fmt[col].apply(lambda x: format_currency(x, curr_sym) if pd.notnull(x) else "N/A")
-                st.dataframe(df_fmt, use_container_width=True)
-                
+                # Format DF for display
+                df_disp = df.copy()
+                for c in df_disp.columns:
+                    df_disp[c] = df_disp[c].apply(lambda x: format_currency(x, curr_sym) if pd.notnull(x) else "N/A")
+                st.dataframe(df_disp, use_container_width=True)
+
                 st.markdown("### Trend Visualization")
-                metric_to_plot = st.selectbox("Select Metric", df_display.index.tolist())
-                # Ensure data is numeric for plotting
-                st.bar_chart(df_display.loc[metric_to_plot])
+                # Plot requires numeric data (df), not string formatted (df_disp)
+                # Also, index is Metrics, Columns are Years. We need to Transpose for st.bar_chart
+                metric_plot = st.selectbox("Select Metric", df.index)
+                if metric_plot:
+                    row_data = df.loc[metric_plot]
+                    # If TTM is in index (it's a string mixed with ints), chart might look odd. 
+                    # Convert index to string for uniform x-axis
+                    row_data.index = row_data.index.astype(str)
+                    st.bar_chart(row_data)
+
         else:
-            # Fallback for empty DF: Show the "Start Year" might be too recent
-            st.warning(f"No data found between {start_year_sel} and {end_year_sel}. Try selecting an earlier Start Year.")
+            st.warning("No data found for the selected period. Try an earlier Start Year.")
 
 elif load_btn and not search_input:
-    st.warning("Please enter a ticker symbol.")
+    st.warning("Please enter a ticker.")
