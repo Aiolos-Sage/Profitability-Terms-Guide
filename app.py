@@ -15,7 +15,6 @@ except (FileNotFoundError, KeyError):
     st.stop()
 
 # --- DEFINITIONS ---
-# Short summaries for the card face
 SHORT_DESCRIPTIONS = {
     "Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
     "Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
@@ -28,7 +27,6 @@ SHORT_DESCRIPTIONS = {
     "Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
 }
 
-# Full detailed definitions for the expander
 FULL_DEFINITIONS = {
     "Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
     "Gross Profit": "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.",
@@ -72,7 +70,6 @@ def apply_css(is_dark):
         .stApp {{ background-color: {bg_color}; color: {text_color}; }}
         html, body, [class*="css"] {{ font-family: 'Inter', 'Roboto', sans-serif; color: {text_color}; }}
         
-        /* Metric Card Style */
         div.metric-card {{
             background-color: {card_bg};
             border: 1px solid {border_color};
@@ -89,14 +86,12 @@ def apply_css(is_dark):
         div.metric-value {{ font-size: 1.8rem; font-weight: 700; color: {text_color}; margin-bottom: 5px; }}
         p.metric-preview {{ font-size: 0.9rem; color: {desc_color}; margin-bottom: 8px; line-height: 1.4; }}
 
-        /* Expander Styling */
         .streamlit-expanderHeader {{
             font-size: 0.85rem !important;
             color: {desc_color} !important;
             padding-left: 0 !important;
         }}
         
-        /* Input Styling Override */
         input[type="text"] {{ background-color: {card_bg} !important; color: {text_color} !important; border: 1px solid {border_color} !important; }}
     </style>
     """, unsafe_allow_html=True)
@@ -246,27 +241,48 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
         with st.expander("Read Details"):
             st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.4; color: #888;'>{full_desc}</div>", unsafe_allow_html=True)
         
-        # 3. Altair Chart with Currency Formatting
+        # 3. Altair Chart with Custom Formatting
         clean_series = series_data.dropna()
         if not clean_series.empty:
-            # Prepare data for Altair (Reset index to get 'Year' as a column)
             chart_data = clean_series.reset_index()
             chart_data.columns = ['Year', 'Value']
             
-            # Use 'f' format for EPS (small number), 's' (SI prefix) for large numbers
+            # --- CUSTOM FORMATTING LOGIC ---
+            # Y Axis Format: SI prefix (s) creates "G" for billions. We replace G with B in the label expression.
+            # Tooltip Format: "$,.0f" creates full currency string (e.g. $12,300,400)
+            
             y_format = "$.2f" if label_key == "EPS" else "$.2s"
-
-            chart = alt.Chart(chart_data).mark_line(color=color_code).encode(
-                x=alt.X('Year', axis=alt.Axis(labels=False, title=None, tickSize=0)), # Hide X axis labels for cleaner look in small card
-                y=alt.Y('Value', axis=alt.Axis(format=y_format, title=None)),
+            tooltip_format = "$.2f" if label_key == "EPS" else "$,.0f"
+            
+            # Base Chart
+            base = alt.Chart(chart_data).encode(
+                x=alt.X('Year', axis=alt.Axis(labels=False, title=None, tickSize=0)),
                 tooltip=[
                     alt.Tooltip('Year', title='Period'),
-                    alt.Tooltip('Value', format=y_format, title=label_key)
+                    alt.Tooltip('Value', format=tooltip_format, title=label_key)
                 ]
+            )
+            
+            # Line Layer
+            line = base.mark_line(color=color_code)
+            
+            # Bullet Layer (Points)
+            points = base.mark_point(filled=True, fill=color_code, size=60)
+            
+            # Combine
+            chart = (line + points).encode(
+                y=alt.Y(
+                    'Value', 
+                    axis=alt.Axis(
+                        format=y_format, 
+                        title=None, 
+                        labelExpr="replace(datum.label, 'G', 'B')" # Force B instead of G
+                    )
+                )
             ).properties(
                 height=150
             ).configure_axis(
-                grid=False
+                grid=True # Show horizontal lines
             ).configure_view(
                 strokeWidth=0
             )
