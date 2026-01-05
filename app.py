@@ -16,15 +16,15 @@ except (FileNotFoundError, KeyError):
 
 # --- DEFINITIONS ---
 SHORT_DESCRIPTIONS = {
-    "1. Revenue": "Indicate market demand for the product or service and the size of the operation.",
-    "2. Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
-    "3. Operating Profit (EBIT)": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
-    "4. EBITDA": "Proxy for operating cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
-    "5. NOPAT": "Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
-    "6. Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
-    "7. EPS": "Net Income divided by shares outstanding. Shows how much profit is left to each share.",
-    "8. Operating Cash Flow": "Cash generated from actual day-to-day business operations. Adjusts Net Income for non-cash items.",
-    "9. Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
+    "Revenue": "Indicate market demand for the product or service and the size of the operation.",
+    "Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
+    "Operating Profit (EBIT)": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
+    "EBITDA": "Proxy for operating cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
+    "NOPAT": "Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
+    "Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
+    "EPS": "Net Income divided by shares outstanding. Shows how much profit is left to each share.",
+    "Operating Cash Flow": "Cash generated from actual day-to-day business operations. Adjusts Net Income for non-cash items.",
+    "Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
 }
 
 FULL_DEFINITIONS = {
