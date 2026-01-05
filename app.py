@@ -237,9 +237,9 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
         </div>
         """, unsafe_allow_html=True)
         
-        # 2. Expander (Read Details)
+        # 2. Expander (Read Details) - ADDED <br> here
         with st.expander("Read Details"):
-            st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.4; color: #888;'>{full_desc}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.4; color: #888;'>{full_desc}</div><br>", unsafe_allow_html=True)
         
         # 3. Altair Chart with Custom Formatting
         clean_series = series_data.dropna()
@@ -247,14 +247,9 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
             chart_data = clean_series.reset_index()
             chart_data.columns = ['Year', 'Value']
             
-            # --- CUSTOM FORMATTING LOGIC ---
-            # Y Axis Format: SI prefix (s) creates "G" for billions. We replace G with B in the label expression.
-            # Tooltip Format: "$,.0f" creates full currency string (e.g. $12,300,400)
-            
             y_format = "$.2f" if label_key == "EPS" else "$.2s"
             tooltip_format = "$.2f" if label_key == "EPS" else "$,.0f"
             
-            # Base Chart
             base = alt.Chart(chart_data).encode(
                 x=alt.X('Year', axis=alt.Axis(labels=False, title=None, tickSize=0)),
                 tooltip=[
@@ -263,26 +258,22 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
                 ]
             )
             
-            # Line Layer
             line = base.mark_line(color=color_code)
-            
-            # Bullet Layer (Points)
             points = base.mark_point(filled=True, fill=color_code, size=60)
             
-            # Combine
             chart = (line + points).encode(
                 y=alt.Y(
                     'Value', 
                     axis=alt.Axis(
                         format=y_format, 
                         title=None, 
-                        labelExpr="replace(datum.label, 'G', 'B')" # Force B instead of G
+                        labelExpr="replace(datum.label, 'G', 'B')" 
                     )
                 )
             ).properties(
                 height=150
             ).configure_axis(
-                grid=True # Show horizontal lines
+                grid=True
             ).configure_view(
                 strokeWidth=0
             )
