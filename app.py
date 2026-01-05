@@ -359,7 +359,7 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     
     # Row 1
     c1, c2, c3, c4 = st.columns(4)
-    render_metric_block(c1, "Revenue", format_currency(row['Revenue'], curr_sym), 
+    render_metric_block(c1, "1. Revenue", format_currency(row['Revenue'], curr_sym), 
                         df_slice['Revenue'], c_income)
                         
     render_metric_block(c2, "Gross Profit", format_currency(row['Gross Profit'], curr_sym), 
