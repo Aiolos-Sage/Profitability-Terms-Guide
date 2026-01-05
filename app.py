@@ -5,7 +5,7 @@ import numpy as np
 import altair as alt
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Profitability Dashboard", page_icon="📘", layout="wide")
+st.set_page_config(page_title="Profitability Terms Guide", page_icon="📘", layout="wide")
 
 # --- CONFIGURATION ---
 try:
@@ -15,28 +15,29 @@ except (FileNotFoundError, KeyError):
     st.stop()
 
 # --- DEFINITIONS ---
+# Updated keys to include numbering
 SHORT_DESCRIPTIONS = {
-    "Revenue": "Indicate market demand for the product or service and the size of the operation.",
-    "Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
-    "Operating Profit": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
-    "EBITDA": "Proxy for operating cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
-    "NOPAT": "Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
-    "Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
-    "EPS": "Net Income divided by shares outstanding. Shows how much profit is left to each share.",
-    "Operating Cash Flow": "Cash generated from actual day-to-day business operations. Adjusts Net Income for non-cash items.",
-    "Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
+    "1. Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
+    "2. Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
+    "3. Operating Profit (EBIT)": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
+    "4. EBITDA": "Proxy for operational cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
+    "5. NOPAT": "Net Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
+    "6. Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
+    "7. EPS": "Net Income divided by shares outstanding. Shows how much profit is allocated to each share.",
+    "8. Operating Cash Flow": "Cash generated from actual day-to-day business operations. Adjusts Net Income for non-cash items.",
+    "9. Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
 }
 
 FULL_DEFINITIONS = {
-    "Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
-    "Gross Profit": "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.",
-    "Operating Profit": "Operating profit equals gross profit minus operating expenses such as marketing, G&A, R&D, and depreciation. G&A (General and Administrative) covers indirect business costs like office rent, utilities, administrative salaries, and insurance, while R&D (Research and Development) covers costs to create or improve products, such as engineers’ salaries, lab work, and testing. It is a key measure of how profitable the core business is, without the effects of taxes and financing decisions.",
-    "EBITDA": "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It is calculated as operating profit plus depreciation and amortization, and is often used as a proxy for cash flow because non-cash charges like depreciation do not represent actual cash outflows. This makes EBITDA a popular metric for valuing companies, especially in tech and infrastructure sectors, as it focuses on operational cash generation before financing and tax effects.",
-    "NOPAT": "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.",
-    "Net Income": "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.",
-    "EPS": "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.",
-    "Operating Cash Flow": "Operating cash flow is the cash from operations that actually comes into or leaves the company from its day-to-day business activities. It adjusts net income for non-cash items and changes in working capital, so sales made on credit (like unpaid invoices in accounts receivable) increase net income but do not increase operating cash flow until the cash is collected.",
-    "Free Cash Flow": "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt."
+    "1. Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
+    "2. Gross Profit": "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.",
+    "3. Operating Profit (EBIT)": "Operating profit equals gross profit minus operating expenses such as marketing, G&A, R&D, and depreciation. G&A (General and Administrative) covers indirect business costs like office rent, utilities, administrative salaries, and insurance, while R&D (Research and Development) covers costs to create or improve products, such as engineers’ salaries, lab work, and testing. It is a key measure of how profitable the core business is, without the effects of taxes and financing decisions.",
+    "4. EBITDA": "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It is calculated as operating profit plus depreciation and amortization, and is often used as a proxy for cash flow because non-cash charges like depreciation do not represent actual cash outflows. This makes EBITDA a popular metric for valuing companies, especially in tech and infrastructure sectors, as it focuses on operational cash generation before financing and tax effects.",
+    "5. NOPAT": "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.",
+    "6. Net Income": "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.",
+    "7. EPS": "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.",
+    "8. Operating Cash Flow": "Operating cash flow is the cash from operations that actually comes into or leaves the company from its day-to-day business activities. It adjusts net income for non-cash items and changes in working capital, so sales made on credit (like unpaid invoices in accounts receivable) increase net income but do not increase operating cash flow until the cash is collected.",
+    "9. Free Cash Flow": "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt."
 }
 
 # --- SESSION STATE ---
@@ -147,6 +148,7 @@ def process_historical_data(raw_data):
         length = len(dates)
         def align(arr, l): return (arr + [None]*(l-len(arr)))[:l] if len(arr) < l else arr[:l]
 
+        # Note: DataFrame columns remain un-numbered for easier data processing
         df = pd.DataFrame({
             "Revenue": align(rev, length),
             "Gross Profit": align(gp, length),
@@ -247,8 +249,8 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
             chart_data = clean_series.reset_index()
             chart_data.columns = ['Year', 'Value']
             
-            y_format = "$.2f" if label_key == "EPS" else "$.2s"
-            tooltip_format = "$.2f" if label_key == "EPS" else "$,.0f"
+            y_format = "$.2f" if "EPS" in label_key else "$.2s"
+            tooltip_format = "$.2f" if "EPS" in label_key else "$,.0f"
             
             base = alt.Chart(chart_data).encode(
                 x=alt.X('Year', axis=alt.Axis(labels=False, title=None, tickSize=0)),
@@ -306,7 +308,7 @@ with st.sidebar:
                     st.session_state.data_loaded = True
 
 # --- MAIN APP ---
-st.title("📘 Profitability Dashboard")
+st.title("📘 Profitability Terms Guide")
 
 if st.session_state.data_loaded and st.session_state.processed_df is not None:
     df = st.session_state.processed_df
@@ -320,8 +322,6 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     
     st.divider()
     
-    # --- UI ALIGNMENT FIX ---
-    # Adjusted columns to be cleaner, using [1, 1, 2] ratio
     c_sel1, c_sel2, c_info = st.columns([1, 1, 2])
     
     with c_sel1:
@@ -335,7 +335,7 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
         end_period = st.selectbox("End Date", end_options, index=len(end_options)-1)
     
     with c_info:
-        # Added spacer to push the info box down to align with input fields
+        # Spacer for visual alignment
         st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
         st.info(f"All the charts are showing values from **{start_period}** to **{end_period}**.")
 
