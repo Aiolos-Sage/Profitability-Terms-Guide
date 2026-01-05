@@ -18,7 +18,7 @@ except (FileNotFoundError, KeyError):
 SHORT_DESCRIPTIONS = {
     "Revenue": "Indicate market demand for the product or service and the size of the operation.",
     "Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
-    "Operating Profit (EBIT)": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
+    "Operating Profit": "Gross Profit minus operating expenses (marketing, R&D, G&A). Core business profitability.",
     "EBITDA": "Proxy for operating cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
     "NOPAT": "Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
     "Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
