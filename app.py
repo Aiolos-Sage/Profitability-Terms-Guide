@@ -212,7 +212,18 @@ def process_historical_data(raw_data):
         df_ttm = pd.DataFrame([ttm_row], index=["TTM"])
         df_final = pd.concat([df, df_ttm])
         
-        cols_to_keep = ["Revenue", "Gross Profit", "Operating Profit", "EBITDA", "NOPAT", "Net Income", "EPS", "Operating Cash Flow", "Free Cash Flow"]
+        # --- REORDERED COLUMNS FOR DISPLAY TABLE ---
+        cols_to_keep = [
+            "Revenue", 
+            "Gross Profit", 
+            "EBITDA", 
+            "Operating Profit", 
+            "NOPAT", 
+            "Net Income", 
+            "EPS", 
+            "Operating Cash Flow", 
+            "Free Cash Flow"
+        ]
         return df_final[cols_to_keep], None
 
     except Exception as e:
