@@ -33,7 +33,7 @@ FULL_DEFINITIONS = {
     "2. Gross Profit": "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.",
     "3. EBITDA": "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It is calculated as operating profit plus depreciation and amortization, and is often used as a proxy for cash flow because non-cash charges like depreciation do not represent actual cash outflows. This makes EBITDA a popular metric for valuing companies, especially in tech and infrastructure sectors, as it focuses on operational cash generation before financing and tax effects.",
     "4. Operating Income (EBIT)": "Operating income (EBIT) is what a company earns from its core business after subtracting operating expenses, but before interest and taxes (and after depreciation and amortization). Operating expenses include items like G&A (General and Administrative)—indirect costs such as office rent, utilities, administrative salaries, and insurance—and R&D (Research and Development), which covers the costs of creating or improving products, such as engineers’ salaries, lab work, and testing. Because it strips out taxes and financing choices, EBIT is a useful measure of the underlying profitability of the core business.",
-    "5. NOPAT": "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.",
+    "5. NOPAT": "NOPAT (Net Operating Profit After Tax) shows the potential cash yield if the company had no debt. It is calculated as <b>Operating Income (EBIT) − Income Tax</b>.<br><br><b>Relation to Net Income:</b><br>• <b>Normally:</b> NOPAT is <i>higher</i> than Net Income because Net Income has interest expenses deducted from it.<br>• <b>Cash-Rich Companies (e.g. Nvidia):</b> NOPAT can be <i>lower</i> than Net Income. This happens when a company has no debt and earns significant interest income on its cash pile, which is added to Net Income but not NOPAT.",
     "6. Income Tax": "Income Tax represents the tax expense recognized in the income statement. A positive number indicates a tax expense paid to the government, reducing Net Income. A negative number indicates a tax benefit (or credit), which increases Net Income. This line item explains a significant portion of the difference between Operating Income and Net Income.",
     "7. Net Income": "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.",
     "8. EPS": "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.",
@@ -216,7 +216,11 @@ def process_historical_data(raw_data):
         df_final = pd.concat([df, df_ttm])
         
         # Keep 'Income Tax' for display
-        cols_to_keep = ["Revenue", "Gross Profit", "EBITDA", "Operating Income (EBIT)", "NOPAT", "Income Tax", "Net Income", "EPS", "Operating Cash Flow", "Free Cash Flow"]
+        cols_to_keep = [
+            "Revenue", "Gross Profit", "EBITDA", "Operating Income (EBIT)", 
+            "NOPAT", "Income Tax", "Net Income", "EPS", 
+            "Operating Cash Flow", "Free Cash Flow"
+        ]
         return df_final[cols_to_keep], None
 
     except Exception as e:
