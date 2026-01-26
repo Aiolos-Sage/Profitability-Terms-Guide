@@ -19,7 +19,7 @@ SHORT_DESCRIPTIONS = {
     "1. Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
     "2. Gross Profit": "Revenue minus Cost of Goods Sold (COGS). Measures production efficiency.",
     "3. EBITDA": "Proxy for operational cash flow before financing effects (Interest, Taxes, Depreciation, Amortization).",
-    "4. Operating Profit (EBIT)": "Operating profit (EBIT) is what a company earns from its core business after subtracting operating expenses, but before interest and taxes (and after depreciation and amortization).",
+    "4. Operating Income (EBIT)": "Operating income (EBIT) is what a company earns from its core business after subtracting operating expenses, but before interest and taxes (and after depreciation and amortization).",
     "5. NOPAT": "Net Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
     "6. Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
     "7. EPS": "Net Income divided by shares outstanding. Shows how much profit is allocated to each share.",
@@ -31,7 +31,7 @@ FULL_DEFINITIONS = {
     "1. Revenue": "Top-line sales indicate market demand for the product or service and the size of the operation.",
     "2. Gross Profit": "Gross profit equals revenue minus the cost of goods sold. It measures a company’s production efficiency—if it’s negative, the company loses money on each product before covering overhead expenses like rent or salaries. COGS (cost of goods sold) includes raw materials, manufacturing costs, and depreciation on production assets such as machinery, factory buildings, production robots, tools and vehicles used in the manufacturing process.",
     "3. EBITDA": "EBITDA stands for Earnings Before Interest, Taxes, Depreciation, and Amortization. It is calculated as operating profit plus depreciation and amortization, and is often used as a proxy for cash flow because non-cash charges like depreciation do not represent actual cash outflows. This makes EBITDA a popular metric for valuing companies, especially in tech and infrastructure sectors, as it focuses on operational cash generation before financing and tax effects.",
-    "4. Operating Profit (EBIT)": "Operating profit (EBIT) is what a company earns from its core business after subtracting operating expenses, but before interest and taxes (and after depreciation and amortization). Operating expenses include items like G&A (General and Administrative)—indirect costs such as office rent, utilities, administrative salaries, and insurance—and R&D (Research and Development), which covers the costs of creating or improving products, such as engineers’ salaries, lab work, and testing. Because it strips out taxes and financing choices, EBIT is a useful measure of the underlying profitability of the core business.",
+    "4. Operating Income (EBIT)": "Operating income (EBIT) is what a company earns from its core business after subtracting operating expenses, but before interest and taxes (and after depreciation and amortization). Operating expenses include items like G&A (General and Administrative)—indirect costs such as office rent, utilities, administrative salaries, and insurance—and R&D (Research and Development), which covers the costs of creating or improving products, such as engineers’ salaries, lab work, and testing. Because it strips out taxes and financing choices, EBIT is a useful measure of the underlying profitability of the core business.",
     "5. NOPAT": "NOPAT shows the capital allocation efficiency, or how much profit a business makes from its operations after an estimate of taxes, but without including the effects of debt or interest. It is calculated using the formula: NOPAT = EBIT × (1 − Tax Rate). It allows investors to compare companies with different levels of debt (leverage) on an apples-to-apples basis. This “clean” operating profit is commonly used in return metrics like ROIC to assess how efficiently a company uses its capital to generate profits.",
     "6. Net Income": "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.",
     "7. EPS": "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.",
@@ -147,10 +147,11 @@ def process_historical_data(raw_data):
         length = len(dates)
         def align(arr, l): return (arr + [None]*(l-len(arr)))[:l] if len(arr) < l else arr[:l]
 
+        # Use "Operating Income (EBIT)" as column name here
         df = pd.DataFrame({
             "Revenue": align(rev, length),
             "Gross Profit": align(gp, length),
-            "Operating Profit (EBIT)": align(op, length),
+            "Operating Income (EBIT)": align(op, length),
             "EBITDA": align(ebitda, length),
             "Net Income": align(ni, length),
             "EPS": align(eps, length),
@@ -161,8 +162,8 @@ def process_historical_data(raw_data):
         }, index=[str(d).split('-')[0] for d in dates])
 
         # Derived Metrics
-        # NOPAT FIX: Standard 21% Tax Rate Assumption to prevent negative tax anomalies
-        df['NOPAT'] = df['Operating Profit (EBIT)'] * (1 - 0.21)
+        # NOPAT FIX: Standard 21% Tax Rate Assumption (EBIT * 0.79)
+        df['NOPAT'] = df['Operating Income (EBIT)'] * (1 - 0.21)
         
         df['Free Cash Flow'] = np.where(df['FCF Reported'].notna() & (df['FCF Reported'] != 0), 
                              df['FCF Reported'], 
@@ -184,7 +185,7 @@ def process_historical_data(raw_data):
         ttm_row = {
             "Revenue": get_ttm_sum(q_rev),
             "Gross Profit": get_ttm_sum(q_gp),
-            "Operating Profit (EBIT)": get_ttm_sum(q_op),
+            "Operating Income (EBIT)": get_ttm_sum(q_op),
             "EBITDA": get_ttm_sum(q_ebitda),
             "Net Income": get_ttm_sum(q_ni),
             "EPS": get_ttm_sum(q_eps),
@@ -193,7 +194,7 @@ def process_historical_data(raw_data):
             "CapEx": get_ttm_sum(q_capex),
         }
         
-        op_ttm = ttm_row.get("Operating Profit (EBIT)")
+        op_ttm = ttm_row.get("Operating Income (EBIT)")
         
         # TTM NOPAT FIX
         if op_ttm is not None:
@@ -209,7 +210,7 @@ def process_historical_data(raw_data):
         df_ttm = pd.DataFrame([ttm_row], index=["TTM"])
         df_final = pd.concat([df, df_ttm])
         
-        cols_to_keep = ["Revenue", "Gross Profit", "EBITDA", "Operating Profit (EBIT)", "NOPAT", "Net Income", "EPS", "Operating Cash Flow", "Free Cash Flow"]
+        cols_to_keep = ["Revenue", "Gross Profit", "EBITDA", "Operating Income (EBIT)", "NOPAT", "Net Income", "EPS", "Operating Cash Flow", "Free Cash Flow"]
         return df_final[cols_to_keep], None
 
     except Exception as e:
@@ -363,8 +364,8 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     render_metric_block(c3, "3. EBITDA", format_currency(row['EBITDA'], curr_sym), 
                         df_slice['EBITDA'], c_income)
                         
-    render_metric_block(c4, "4. Operating Profit (EBIT)", format_currency(row['Operating Profit (EBIT)'], curr_sym), 
-                        df_slice['Operating Profit (EBIT)'], c_income)
+    render_metric_block(c4, "4. Operating Income (EBIT)", format_currency(row['Operating Income (EBIT)'], curr_sym), 
+                        df_slice['Operating Income (EBIT)'], c_income)
 
     st.markdown("---")
     
