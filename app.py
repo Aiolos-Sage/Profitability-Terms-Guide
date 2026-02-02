@@ -110,14 +110,14 @@ apply_css(st.session_state.dark_mode)
 
 # --- HELPER FUNCTIONS ---
 def format_currency(value, currency_symbol="$"):
-    if value is None or pd.isna(value): return "N/A"
+    if value is None or pd.isna(value) or np.isinf(value): return "N/A"
     abs_val = abs(value)
     if abs_val >= 1_000_000_000: return f"{currency_symbol}{value / 1_000_000_000:.2f}B"
     if abs_val >= 1_000_000: return f"{currency_symbol}{value / 1_000_000:.2f}M"
     return f"{currency_symbol}{value:,.2f}"
 
 def format_percentage(value):
-    if value is None or pd.isna(value): return "N/A"
+    if value is None or pd.isna(value) or np.isinf(value): return "N/A"
     return f"{value * 100:.1f}%"
 
 def fetch_quickfs_data(ticker):
@@ -160,7 +160,7 @@ def process_historical_data(raw_data):
         equity = safe_get_list(annual, ["total_equity", "total_stockholders_equity"])
         assets = safe_get_list(annual, ["total_assets"])
         curr_liab = safe_get_list(annual, ["total_current_liabilities"])
-        debt = safe_get_list(annual, ["total_debt"]) # Used for Invested Capital
+        debt = safe_get_list(annual, ["total_debt"])
 
         if not dates: return None, "No historical dates found."
 
@@ -184,14 +184,12 @@ def process_historical_data(raw_data):
             "Total Debt": align(debt, length)
         }, index=[str(d).split('-')[0] for d in dates])
 
+        # --- FIX: Convert all columns to numeric to safely handle NaN and avoid ZeroDivisionError ---
+        df = df.apply(pd.to_numeric, errors='coerce')
+
         # Derived Metrics
-        
         # NOPAT = Operating Income - Reported Income Tax
-        df['NOPAT'] = np.where(
-            df['Operating Income (EBIT)'].notna(),
-            df['Operating Income (EBIT)'] - df['Income Tax'].fillna(0),
-            None
-        )
+        df['NOPAT'] = df['Operating Income (EBIT)'] - df['Income Tax'].fillna(0)
         
         # FCF (Preferred: Reported, Fallback: CFO - CapEx)
         df['Free Cash Flow'] = np.where(df['FCF Reported'].notna() & (df['FCF Reported'] != 0), 
@@ -200,6 +198,7 @@ def process_historical_data(raw_data):
                              
         # --- RATIO CALCULATIONS ---
         # 11. ROE = Net Income / Equity
+        # We fillna(0) for denominator or let it result in inf/nan, handled by display logic
         df['Return on Equity (ROE)'] = df['Net Income'] / df['Total Equity']
         
         # Invested Capital = Total Debt + Total Equity
@@ -228,7 +227,7 @@ def process_historical_data(raw_data):
         q_cfo = safe_get_list(quarterly, ["cf_cfo", "cfo"])
         q_capex = safe_get_list(quarterly, ["capex"])
         
-        # Quarterly Balance Sheet (Point in Time - use LAST value, not sum)
+        # Quarterly Balance Sheet (Point in Time - use LAST value)
         q_equity = safe_get_list(quarterly, ["total_equity", "total_stockholders_equity"])
         q_assets = safe_get_list(quarterly, ["total_assets"])
         q_curr_liab = safe_get_list(quarterly, ["total_current_liabilities"])
@@ -247,7 +246,7 @@ def process_historical_data(raw_data):
             "Income Tax": get_ttm_sum(q_tax),
             "Operating Cash Flow": get_ttm_sum(q_cfo),
             "CapEx": get_ttm_sum(q_capex),
-            # BS Items (Latest)
+            # BS Items
             "Total Equity": get_last(q_equity),
             "Total Assets": get_last(q_assets),
             "Current Liabilities": get_last(q_curr_liab),
@@ -269,36 +268,19 @@ def process_historical_data(raw_data):
             ttm_row['Free Cash Flow'] = None
             
         # TTM Ratios
-        # Invested Capital
         inv_cap = (ttm_row['Total Debt'] or 0) + (ttm_row['Total Equity'] or 0)
         cap_emp = (ttm_row['Total Assets'] or 0) - (ttm_row['Current Liabilities'] or 0)
         
         ttm_row['Invested Capital'] = inv_cap if inv_cap != 0 else None
         ttm_row['Capital Employed'] = cap_emp if cap_emp != 0 else None
         
-        # ROE
-        if ttm_row['Net Income'] is not None and ttm_row['Total Equity']:
-            ttm_row['Return on Equity (ROE)'] = ttm_row['Net Income'] / ttm_row['Total Equity']
-        else:
-            ttm_row['Return on Equity (ROE)'] = None
-            
-        # ROIC
-        if ttm_row['NOPAT'] is not None and inv_cap:
-            ttm_row['Return on Invested Capital (ROIC)'] = ttm_row['NOPAT'] / inv_cap
-        else:
-            ttm_row['Return on Invested Capital (ROIC)'] = None
-            
-        # ROCE
-        if ttm_row['Operating Income (EBIT)'] is not None and cap_emp:
-            ttm_row['Return on Capital Employed (ROCE)'] = ttm_row['Operating Income (EBIT)'] / cap_emp
-        else:
-            ttm_row['Return on Capital Employed (ROCE)'] = None
-            
-        # CROIC
-        if ttm_row['Free Cash Flow'] is not None and inv_cap:
-            ttm_row['Cash Return on Invested Capital (CROIC)'] = ttm_row['Free Cash Flow'] / inv_cap
-        else:
-            ttm_row['Cash Return on Invested Capital (CROIC)'] = None
+        # Safe Division for TTM
+        def safe_div(n, d): return n / d if (n is not None and d) else None
+
+        ttm_row['Return on Equity (ROE)'] = safe_div(ttm_row['Net Income'], ttm_row['Total Equity'])
+        ttm_row['Return on Invested Capital (ROIC)'] = safe_div(ttm_row['NOPAT'], inv_cap)
+        ttm_row['Return on Capital Employed (ROCE)'] = safe_div(ttm_row['Operating Income (EBIT)'], cap_emp)
+        ttm_row['Cash Return on Invested Capital (CROIC)'] = safe_div(ttm_row['Free Cash Flow'], inv_cap)
 
         df_ttm = pd.DataFrame([ttm_row], index=["TTM"])
         df_final = pd.concat([df, df_ttm])
@@ -326,14 +308,12 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
     # Determine Formatting
     is_percent = "Return" in label_key or "RO" in label_key
     
-    # Display Value Formatting
     if isinstance(current_val, (int, float)):
         val_str = format_percentage(current_val) if is_percent else format_currency(current_val)
     else:
-        val_str = str(current_val) # Already formatted string passed
+        val_str = str(current_val) 
         
     with col:
-        # 1. Card Header & Value
         st.markdown(f"""
         <div class="metric-card" style="border-top: 4px solid {color_code};">
             <div>
@@ -344,17 +324,18 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
         </div>
         """, unsafe_allow_html=True)
         
-        # 2. Expander (Read Details)
         with st.expander("Read Details"):
             st.markdown(f"<div style='font-size: 0.9rem; line-height: 1.4; color: #888;'>{full_desc}</div><br>", unsafe_allow_html=True)
         
-        # 3. Altair Chart with Custom Formatting
+        # Chart
         clean_series = series_data.dropna()
+        # Remove infinite values for charting
+        clean_series = clean_series[~clean_series.isin([np.inf, -np.inf])]
+        
         if not clean_series.empty:
             chart_data = clean_series.reset_index()
             chart_data.columns = ['Year', 'Value']
             
-            # --- CUSTOM CHART FORMATTING ---
             if is_percent:
                 y_format = ".1%"
                 tooltip_format = ".1%"
@@ -448,7 +429,6 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
         end_period = st.selectbox("End Date", end_options, index=len(end_options)-1)
     
     with c_info:
-        # Spacer for visual alignment
         st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
         st.info(f"All the charts are showing values from **{start_period}** to **{end_period}**.")
 
@@ -472,35 +452,19 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     
     # Row 1
     c1, c2, c3, c4 = st.columns(4)
-    render_metric_block(c1, "1. Revenue", format_currency(row['Revenue'], curr_sym), 
-                        df_slice['Revenue'], c_income)
-                        
-    render_metric_block(c2, "2. Gross Profit", format_currency(row['Gross Profit'], curr_sym), 
-                        df_slice['Gross Profit'], c_income)
-
-    render_metric_block(c3, "3. EBITDA", format_currency(row['EBITDA'], curr_sym), 
-                        df_slice['EBITDA'], c_income)
-                        
-    render_metric_block(c4, "4. Operating Income (EBIT)", format_currency(row['Operating Income (EBIT)'], curr_sym), 
-                        df_slice['Operating Income (EBIT)'], c_income)
+    render_metric_block(c1, "1. Revenue", row['Revenue'], df_slice['Revenue'], c_income)
+    render_metric_block(c2, "2. Gross Profit", row['Gross Profit'], df_slice['Gross Profit'], c_income)
+    render_metric_block(c3, "3. EBITDA", row['EBITDA'], df_slice['EBITDA'], c_income)
+    render_metric_block(c4, "4. Operating Income (EBIT)", row['Operating Income (EBIT)'], df_slice['Operating Income (EBIT)'], c_income)
 
     st.markdown("---")
     
     # Row 2
     c1, c2, c3, c4 = st.columns(4)
-    render_metric_block(c1, "5. NOPAT", format_currency(row['NOPAT'], curr_sym), 
-                        df_slice['NOPAT'], c_income)
-    
-    render_metric_block(c2, "6. Income Tax", format_currency(row['Income Tax'], curr_sym), 
-                        df_slice['Income Tax'], c_income)
-                        
-    render_metric_block(c3, "7. Net Income", format_currency(row['Net Income'], curr_sym), 
-                        df_slice['Net Income'], c_income)
-                        
-    eps_val = row['EPS (Diluted)']
-    eps_str = f"{curr_sym}{eps_val:.2f}" if pd.notna(eps_val) else "N/A"
-    render_metric_block(c4, "8. EPS (Diluted)", eps_str, 
-                        df_slice['EPS (Diluted)'], c_income)
+    render_metric_block(c1, "5. NOPAT", row['NOPAT'], df_slice['NOPAT'], c_income)
+    render_metric_block(c2, "6. Income Tax", row['Income Tax'], df_slice['Income Tax'], c_income)
+    render_metric_block(c3, "7. Net Income", row['Net Income'], df_slice['Net Income'], c_income)
+    render_metric_block(c4, "8. EPS (Diluted)", row['EPS (Diluted)'], df_slice['EPS (Diluted)'], c_income)
 
     st.markdown("---")
 
@@ -509,33 +473,23 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     c_cash = "#10b981"
     
     c1, c2, c3, c4 = st.columns(4)
-    render_metric_block(c1, "9. Operating Cash Flow", format_currency(row['Operating Cash Flow'], curr_sym), 
-                        df_slice['Operating Cash Flow'], c_cash)
-                        
-    render_metric_block(c2, "10. Free Cash Flow", format_currency(row['Free Cash Flow'], curr_sym), 
-                        df_slice['Free Cash Flow'], c_cash)
+    render_metric_block(c1, "9. Operating Cash Flow", row['Operating Cash Flow'], df_slice['Operating Cash Flow'], c_cash)
+    render_metric_block(c2, "10. Free Cash Flow", row['Free Cash Flow'], df_slice['Free Cash Flow'], c_cash)
     
     with c3: st.empty()
     with c4: st.empty()
     
     st.markdown("---")
 
-    # 3. Ratios & Return on Capital
+    # 3. Ratios
     st.subheader(f"📈 Ratios & Return on Capital ({end_period})")
-    c_ratio = "#8b5cf6" # Violet color for ratios
+    c_ratio = "#8b5cf6"
     
     c1, c2, c3, c4 = st.columns(4)
-    render_metric_block(c1, "11. Return on Equity (ROE)", row['Return on Equity (ROE)'], 
-                        df_slice['Return on Equity (ROE)'], c_ratio)
-                        
-    render_metric_block(c2, "12. Return on Invested Capital (ROIC)", row['Return on Invested Capital (ROIC)'], 
-                        df_slice['Return on Invested Capital (ROIC)'], c_ratio)
-                        
-    render_metric_block(c3, "13. Return on Capital Employed (ROCE)", row['Return on Capital Employed (ROCE)'], 
-                        df_slice['Return on Capital Employed (ROCE)'], c_ratio)
-                        
-    render_metric_block(c4, "14. Cash Return on Invested Capital (CROIC)", row['Cash Return on Invested Capital (CROIC)'], 
-                        df_slice['Cash Return on Invested Capital (CROIC)'], c_ratio)
+    render_metric_block(c1, "11. Return on Equity (ROE)", row['Return on Equity (ROE)'], df_slice['Return on Equity (ROE)'], c_ratio)
+    render_metric_block(c2, "12. Return on Invested Capital (ROIC)", row['Return on Invested Capital (ROIC)'], df_slice['Return on Invested Capital (ROIC)'], c_ratio)
+    render_metric_block(c3, "13. Return on Capital Employed (ROCE)", row['Return on Capital Employed (ROCE)'], df_slice['Return on Capital Employed (ROCE)'], c_ratio)
+    render_metric_block(c4, "14. Cash Return on Invested Capital (CROIC)", row['Cash Return on Invested Capital (CROIC)'], df_slice['Cash Return on Invested Capital (CROIC)'], c_ratio)
 
     # --- VIEW DATA SECTION ---
     st.write("")
@@ -543,7 +497,6 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     with st.expander(f"View Data Table ({start_period} - {end_period})"):
         st.write("")
         st.write("")
-        # Format styling based on column type
         st.dataframe(df_slice.style.format({
             col: "{:,.0f}" if "Return" not in col else "{:.1%}" 
             for col in df_slice.columns if "EPS" not in col
