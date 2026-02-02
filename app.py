@@ -23,9 +23,13 @@ SHORT_DESCRIPTIONS = {
     "5. NOPAT": "Net Operating Profit After Tax. Shows potential cash yield if the company had no debt.",
     "6. Income Tax": "The amount paid to the government. A negative value indicates a tax benefit (refund/credit).",
     "7. Net Income": "The bottom line. Profit left for shareholders after all expenses, interest, and taxes.",
-    "8. EPS (Diluted)": "Net Income divided by shares outstanding (including convertibles/options). Shows profit allocated to each share.",
+    "8. EPS (Diluted)": "Net Income divided by shares outstanding. Shows how much profit is allocated to each share.",
     "9. Operating Cash Flow": "Cash generated from actual day-to-day business operations. Adjusts Net Income for non-cash items.",
-    "10. Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment."
+    "10. Free Cash Flow": "Operating Cash Flow minus CapEx. The truly 'free' cash available for dividends or reinvestment.",
+    "11. Return on Equity (ROE)": "Net Income divided by Shareholders' Equity. Measures return on shareholders' money.",
+    "12. Return on Invested Capital (ROIC)": "NOPAT divided by Total Invested Capital (Debt + Equity). Measures total business efficiency.",
+    "13. Return on Capital Employed (ROCE)": "EBIT divided by Capital Employed (Assets - Current Liab). Pre-tax efficiency metric.",
+    "14. Cash Return on Invested Capital (CROIC)": "Free Cash Flow divided by Invested Capital. The 'brutal' cash-based efficiency metric."
 }
 
 FULL_DEFINITIONS = {
@@ -38,7 +42,11 @@ FULL_DEFINITIONS = {
     "7. Net Income": "Net income is the profit left for shareholders after paying all expenses, including suppliers, employees, interest to banks, and taxes. It is the official earnings figure used in metrics like the Price-to-Earnings (P/E) ratio and is influenced by the company’s interest costs, unlike EBIT or NOPAT.",
     "8. EPS (Diluted)": "Earnings per share (EPS) is calculated by dividing net income by the number of common shares outstanding, using only the current, actual shares in existence. It shows how much of today’s profit is allocated to each existing share an investor owns.",
     "9. Operating Cash Flow": "Operating cash flow is the cash from operations that actually comes into or leaves the company from its day-to-day business activities. It adjusts net income for non-cash items and changes in working capital, so sales made on credit (like unpaid invoices in accounts receivable) increase net income but do not increase operating cash flow until the cash is collected.",
-    "10. Free Cash Flow": "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt."
+    "10. Free Cash Flow": "Free cash flow (FCF) is the cash left over after a company pays for its operating costs and necessary investments in equipment and machinery (CapEx). It represents the truly free money that can be used to pay dividends, buy back shares, or reinvest in growth without hurting the existing business, and because it’s calculated after interest in most cases, it shows how much cash is left for shareholders after servicing debt.",
+    "11. Return on Equity (ROE)": "<b>Formula:</b> Net Income ÷ Shareholders' Equity.<br><b>Meaning:</b> Measures how much return the company generates on shareholders' money alone.<br><b>Drawback:</b> Can be artificially inflated by taking on debt (leverage). A very risky company can present a high ROE.",
+    "12. Return on Invested Capital (ROIC)": "<b>Formula:</b> NOPAT ÷ Total Invested Capital (Debt + Equity).<br><b>Meaning:</b> Checks the efficiency of the entire business, regardless of financing method (debt or equity). This is the preferred metric for checking for an 'Economic Moat' and competitive advantage.",
+    "13. Return on Capital Employed (ROCE)": "<b>Formula:</b> EBIT ÷ Capital Employed (Total Assets − Current Liabilities).<br><b>Meaning:</b> Very similar to ROIC, but uses pre-tax profit (EBIT). Very common in heavy industrial companies and in the UK.<br><b>Difference:</b> Usually, ROCE presents a higher number than ROIC because the numerator (EBIT) is pre-tax.",
+    "14. Cash Return on Invested Capital (CROIC)": "<b>Formula:</b> Free Cash Flow ÷ Invested Capital.<br><b>Meaning:</b> The 'brutal' and most honest version. It checks how much actual cash the company generated on the invested capital. This is the basis for the 'Compounder' formula."
 }
 
 # --- SESSION STATE ---
@@ -108,6 +116,10 @@ def format_currency(value, currency_symbol="$"):
     if abs_val >= 1_000_000: return f"{currency_symbol}{value / 1_000_000:.2f}M"
     return f"{currency_symbol}{value:,.2f}"
 
+def format_percentage(value):
+    if value is None or pd.isna(value): return "N/A"
+    return f"{value * 100:.1f}%"
+
 def fetch_quickfs_data(ticker):
     url = f"https://public-api.quickfs.net/v1/data/all-data/{ticker}"
     params = {"api_key": API_KEY}
@@ -143,6 +155,12 @@ def process_historical_data(raw_data):
         cfo = safe_get_list(annual, ["cf_cfo", "cfo", "cash_flow_operating"])
         capex = safe_get_list(annual, ["capex", "capital_expenditures"])
         fcf = safe_get_list(annual, ["fcf", "free_cash_flow"])
+        
+        # Balance Sheet items for Ratios
+        equity = safe_get_list(annual, ["total_equity", "total_stockholders_equity"])
+        assets = safe_get_list(annual, ["total_assets"])
+        curr_liab = safe_get_list(annual, ["total_current_liabilities"])
+        debt = safe_get_list(annual, ["total_debt"]) # Used for Invested Capital
 
         if not dates: return None, "No historical dates found."
 
@@ -159,10 +177,15 @@ def process_historical_data(raw_data):
             "Income Tax": align(tax, length),
             "Operating Cash Flow": align(cfo, length),
             "CapEx": align(capex, length),
-            "FCF Reported": align(fcf, length)
+            "FCF Reported": align(fcf, length),
+            "Total Equity": align(equity, length),
+            "Total Assets": align(assets, length),
+            "Current Liabilities": align(curr_liab, length),
+            "Total Debt": align(debt, length)
         }, index=[str(d).split('-')[0] for d in dates])
 
-        # Derived Metrics - NOPAT Logic
+        # Derived Metrics
+        
         # NOPAT = Operating Income - Reported Income Tax
         df['NOPAT'] = np.where(
             df['Operating Income (EBIT)'].notna(),
@@ -170,9 +193,29 @@ def process_historical_data(raw_data):
             None
         )
         
+        # FCF (Preferred: Reported, Fallback: CFO - CapEx)
         df['Free Cash Flow'] = np.where(df['FCF Reported'].notna() & (df['FCF Reported'] != 0), 
                              df['FCF Reported'], 
                              df['Operating Cash Flow'] - df['CapEx'].abs())
+                             
+        # --- RATIO CALCULATIONS ---
+        # 11. ROE = Net Income / Equity
+        df['Return on Equity (ROE)'] = df['Net Income'] / df['Total Equity']
+        
+        # Invested Capital = Total Debt + Total Equity
+        df['Invested Capital'] = df['Total Debt'].fillna(0) + df['Total Equity'].fillna(0)
+        
+        # 12. ROIC = NOPAT / Invested Capital
+        df['Return on Invested Capital (ROIC)'] = df['NOPAT'] / df['Invested Capital']
+        
+        # Capital Employed = Total Assets - Current Liabilities
+        df['Capital Employed'] = df['Total Assets'] - df['Current Liabilities']
+        
+        # 13. ROCE = EBIT / Capital Employed
+        df['Return on Capital Employed (ROCE)'] = df['Operating Income (EBIT)'] / df['Capital Employed']
+        
+        # 14. CROIC = FCF / Invested Capital
+        df['Cash Return on Invested Capital (CROIC)'] = df['Free Cash Flow'] / df['Invested Capital']
 
         # 2. Handle TTM
         q_rev = safe_get_list(quarterly, ["revenue"])
@@ -185,7 +228,14 @@ def process_historical_data(raw_data):
         q_cfo = safe_get_list(quarterly, ["cf_cfo", "cfo"])
         q_capex = safe_get_list(quarterly, ["capex"])
         
+        # Quarterly Balance Sheet (Point in Time - use LAST value, not sum)
+        q_equity = safe_get_list(quarterly, ["total_equity", "total_stockholders_equity"])
+        q_assets = safe_get_list(quarterly, ["total_assets"])
+        q_curr_liab = safe_get_list(quarterly, ["total_current_liabilities"])
+        q_debt = safe_get_list(quarterly, ["total_debt"])
+        
         def get_ttm_sum(arr): return sum(arr[-4:]) if arr and len(arr) >= 4 else None
+        def get_last(arr): return arr[-1] if arr and len(arr) > 0 else None
 
         ttm_row = {
             "Revenue": get_ttm_sum(q_rev),
@@ -197,12 +247,17 @@ def process_historical_data(raw_data):
             "Income Tax": get_ttm_sum(q_tax),
             "Operating Cash Flow": get_ttm_sum(q_cfo),
             "CapEx": get_ttm_sum(q_capex),
+            # BS Items (Latest)
+            "Total Equity": get_last(q_equity),
+            "Total Assets": get_last(q_assets),
+            "Current Liabilities": get_last(q_curr_liab),
+            "Total Debt": get_last(q_debt)
         }
         
         op_ttm = ttm_row.get("Operating Income (EBIT)")
         tax_ttm = ttm_row.get("Income Tax") or 0
         
-        # TTM NOPAT (Unclamped)
+        # TTM Derived
         if op_ttm is not None:
             ttm_row['NOPAT'] = op_ttm - tax_ttm
         else:
@@ -212,15 +267,49 @@ def process_historical_data(raw_data):
             ttm_row['Free Cash Flow'] = ttm_row["Operating Cash Flow"] - abs(ttm_row["CapEx"])
         else:
             ttm_row['Free Cash Flow'] = None
+            
+        # TTM Ratios
+        # Invested Capital
+        inv_cap = (ttm_row['Total Debt'] or 0) + (ttm_row['Total Equity'] or 0)
+        cap_emp = (ttm_row['Total Assets'] or 0) - (ttm_row['Current Liabilities'] or 0)
+        
+        ttm_row['Invested Capital'] = inv_cap if inv_cap != 0 else None
+        ttm_row['Capital Employed'] = cap_emp if cap_emp != 0 else None
+        
+        # ROE
+        if ttm_row['Net Income'] is not None and ttm_row['Total Equity']:
+            ttm_row['Return on Equity (ROE)'] = ttm_row['Net Income'] / ttm_row['Total Equity']
+        else:
+            ttm_row['Return on Equity (ROE)'] = None
+            
+        # ROIC
+        if ttm_row['NOPAT'] is not None and inv_cap:
+            ttm_row['Return on Invested Capital (ROIC)'] = ttm_row['NOPAT'] / inv_cap
+        else:
+            ttm_row['Return on Invested Capital (ROIC)'] = None
+            
+        # ROCE
+        if ttm_row['Operating Income (EBIT)'] is not None and cap_emp:
+            ttm_row['Return on Capital Employed (ROCE)'] = ttm_row['Operating Income (EBIT)'] / cap_emp
+        else:
+            ttm_row['Return on Capital Employed (ROCE)'] = None
+            
+        # CROIC
+        if ttm_row['Free Cash Flow'] is not None and inv_cap:
+            ttm_row['Cash Return on Invested Capital (CROIC)'] = ttm_row['Free Cash Flow'] / inv_cap
+        else:
+            ttm_row['Cash Return on Invested Capital (CROIC)'] = None
 
         df_ttm = pd.DataFrame([ttm_row], index=["TTM"])
         df_final = pd.concat([df, df_ttm])
         
-        # Keep 'Income Tax' for display
+        # Display Columns
         cols_to_keep = [
             "Revenue", "Gross Profit", "EBITDA", "Operating Income (EBIT)", 
             "NOPAT", "Income Tax", "Net Income", "EPS (Diluted)", 
-            "Operating Cash Flow", "Free Cash Flow"
+            "Operating Cash Flow", "Free Cash Flow",
+            "Return on Equity (ROE)", "Return on Invested Capital (ROIC)",
+            "Return on Capital Employed (ROCE)", "Cash Return on Invested Capital (CROIC)"
         ]
         return df_final[cols_to_keep], None
 
@@ -229,18 +318,27 @@ def process_historical_data(raw_data):
 
 def render_metric_block(col, label_key, current_val, series_data, color_code):
     """
-    Renders Card -> Preview Text -> Read Details -> Currency Chart
+    Renders Card -> Preview Text -> Read Details -> Currency/Percent Chart
     """
     short_desc = SHORT_DESCRIPTIONS.get(label_key, "")
     full_desc = FULL_DEFINITIONS.get(label_key, "Description not available.")
     
+    # Determine Formatting
+    is_percent = "Return" in label_key or "RO" in label_key
+    
+    # Display Value Formatting
+    if isinstance(current_val, (int, float)):
+        val_str = format_percentage(current_val) if is_percent else format_currency(current_val)
+    else:
+        val_str = str(current_val) # Already formatted string passed
+        
     with col:
         # 1. Card Header & Value
         st.markdown(f"""
         <div class="metric-card" style="border-top: 4px solid {color_code};">
             <div>
                 <h4 class="metric-label">{label_key}</h4>
-                <div class="metric-value">{current_val}</div>
+                <div class="metric-value">{val_str}</div>
             </div>
             <p class="metric-preview">{short_desc}</p>
         </div>
@@ -256,8 +354,16 @@ def render_metric_block(col, label_key, current_val, series_data, color_code):
             chart_data = clean_series.reset_index()
             chart_data.columns = ['Year', 'Value']
             
-            y_format = "$.2f" if "EPS" in label_key else "$.2s"
-            tooltip_format = "$.2f" if "EPS" in label_key else "$,.0f"
+            # --- CUSTOM CHART FORMATTING ---
+            if is_percent:
+                y_format = ".1%"
+                tooltip_format = ".1%"
+            elif "EPS" in label_key:
+                y_format = "$.2f"
+                tooltip_format = "$.2f"
+            else:
+                y_format = "$.2s"
+                tooltip_format = "$,.0f"
             
             base = alt.Chart(chart_data).encode(
                 x=alt.X('Year', axis=alt.Axis(labels=False, title=None, tickSize=0)),
@@ -380,7 +486,7 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
 
     st.markdown("---")
     
-    # Row 2 (Updated with Income Tax)
+    # Row 2
     c1, c2, c3, c4 = st.columns(4)
     render_metric_block(c1, "5. NOPAT", format_currency(row['NOPAT'], curr_sym), 
                         df_slice['NOPAT'], c_income)
@@ -411,6 +517,25 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     
     with c3: st.empty()
     with c4: st.empty()
+    
+    st.markdown("---")
+
+    # 3. Ratios & Return on Capital
+    st.subheader(f"📈 Ratios & Return on Capital ({end_period})")
+    c_ratio = "#8b5cf6" # Violet color for ratios
+    
+    c1, c2, c3, c4 = st.columns(4)
+    render_metric_block(c1, "11. Return on Equity (ROE)", row['Return on Equity (ROE)'], 
+                        df_slice['Return on Equity (ROE)'], c_ratio)
+                        
+    render_metric_block(c2, "12. Return on Invested Capital (ROIC)", row['Return on Invested Capital (ROIC)'], 
+                        df_slice['Return on Invested Capital (ROIC)'], c_ratio)
+                        
+    render_metric_block(c3, "13. Return on Capital Employed (ROCE)", row['Return on Capital Employed (ROCE)'], 
+                        df_slice['Return on Capital Employed (ROCE)'], c_ratio)
+                        
+    render_metric_block(c4, "14. Cash Return on Invested Capital (CROIC)", row['Cash Return on Invested Capital (CROIC)'], 
+                        df_slice['Cash Return on Invested Capital (CROIC)'], c_ratio)
 
     # --- VIEW DATA SECTION ---
     st.write("")
@@ -418,7 +543,11 @@ if st.session_state.data_loaded and st.session_state.processed_df is not None:
     with st.expander(f"View Data Table ({start_period} - {end_period})"):
         st.write("")
         st.write("")
-        st.dataframe(df_slice.style.format("{:,.0f}", na_rep="N/A"))
+        # Format styling based on column type
+        st.dataframe(df_slice.style.format({
+            col: "{:,.0f}" if "Return" not in col else "{:.1%}" 
+            for col in df_slice.columns if "EPS" not in col
+        }).format({"EPS (Diluted)": "{:.2f}"}))
 
 else:
     # --- LANDING PAGE ---
